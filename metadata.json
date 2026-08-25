@@ -1,0 +1,6 @@
+{
+  "name": "Nascimento Sistemas",
+  "description": "Sistema de gestão comercial e operacional para controle de equipe de rua, clientes, agendamentos, estoque, serviços, caixa e financeiro.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
