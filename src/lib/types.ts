@@ -3,6 +3,7 @@ import type { ServicoStatus, ServicoTipo } from "./servico";
 export type Cliente = {
   id: string;
   nome: string;
+  cpf_cnpj?: string | null;
   telefone: string | null;
   email: string | null;
   endereco: string | null;
@@ -15,6 +16,7 @@ export type Cliente = {
 
 export type ClienteResumo = {
   nome: string;
+  cpf_cnpj?: string | null;
   telefone: string | null;
   endereco: string | null;
   numero: string | null;
@@ -29,6 +31,8 @@ export type Servico = {
   tipo: ServicoTipo;
   status: ServicoStatus;
   data_agendada: string;
+  duracao_estimada_minutos?: number | null;
+  iniciado_em?: string | null;
   tecnico_id: string | null;
   descricao: string | null;
   relatorio: string | null;

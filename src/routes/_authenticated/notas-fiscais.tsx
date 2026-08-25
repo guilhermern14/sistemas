@@ -15,6 +15,7 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { Eye, FileUp, Plus, ReceiptText, Trash2 } from "lucide-react";
+import { ConfirmDeleteDialog } from "@/components/ConfirmDeleteDialog";
 import { formatMoney } from "@/lib/servico";
 import { MARGEM_VENDA, parseNfe, type NotaXml } from "@/lib/xml-nfe";
 import type { NotaFiscal, NotaFiscalItem, NotaFiscalTipo } from "@/lib/types";
@@ -65,6 +66,7 @@ function NotasFiscaisPage() {
   const [openXml, setOpenXml] = useState(false);
   const [detalhes, setDetalhes] = useState<NotaFiscal | null>(null);
   const [itensDetalhes, setItensDetalhes] = useState<NotaFiscalItem[]>([]);
+  const [itemParaExcluir, setItemParaExcluir] = useState<string | null>(null);
   const inputXml = useRef<HTMLInputElement>(null);
 
   const [manual, setManual] = useState({
@@ -88,6 +90,20 @@ function NotasFiscaisPage() {
       if (error) throw error;
       return data as unknown as NotaFiscal[];
     },
+  });
+
+  const excluirNota = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("notas_fiscais").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Nota fiscal excluída com sucesso");
+      setItemParaExcluir(null);
+      void qc.invalidateQueries({ queryKey: ["notas-fiscais"] });
+      void qc.invalidateQueries({ queryKey: ["estoque"] });
+    },
+    onError: (error: Error) => toast.error(error.message || "Não foi possível excluir a nota fiscal."),
   });
 
   const filtradas = useMemo(() => {
@@ -353,13 +369,42 @@ function NotasFiscaisPage() {
                   <TableCell>{n.numero || "—"}{n.serie ? ` / ${n.serie}` : ""}</TableCell>
                   <TableCell className="font-medium">{formatMoney(Number(n.valor_total))}</TableCell>
                   <TableCell>{n.origem === "xml" ? "XML" : "Manual"}</TableCell>
-                  <TableCell className="text-right"><Button size="icon" variant="ghost" onClick={() => void abrirDetalhes(n)} title="Ver produtos"><Eye className="h-4 w-4" /></Button></TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex justify-end gap-1">
+                      <Button size="icon" variant="ghost" onClick={() => void abrirDetalhes(n)} title="Ver produtos">
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="text-destructive hover:bg-destructive/10"
+                        onClick={() => setItemParaExcluir(n.id)}
+                        disabled={excluirNota.isPending}
+                        title="Excluir nota fiscal"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </TableCell>
                 </TableRow>
               ))
             }
           </TableBody>
         </Table>
       </div>
+
+      <ConfirmDeleteDialog
+        open={!!itemParaExcluir}
+        onOpenChange={(o) => !o && setItemParaExcluir(null)}
+        title="Excluir nota fiscal"
+        description="Tem certeza que deseja excluir esta nota fiscal? Os itens vinculados também serão removidos."
+        onConfirm={() => {
+          if (itemParaExcluir) {
+            excluirNota.mutate(itemParaExcluir);
+          }
+        }}
+        isPending={excluirNota.isPending}
+      />
 
       <Dialog open={openXml} onOpenChange={setOpenXml}>
         <DialogContent className="max-h-[85vh] max-w-4xl overflow-y-auto">

@@ -34,6 +34,7 @@ export const Route = createFileRoute("/_authenticated/clientes")({
 
 const vazio = {
   nome: "",
+  cpf_cnpj: "",
   telefone: "",
   email: "",
   endereco: "",
@@ -74,6 +75,7 @@ function ClientesPage() {
       setForm(vazio);
       setOpen(false);
       void qc.invalidateQueries({ queryKey: ["clientes"] });
+      void qc.invalidateQueries({ queryKey: ["clientes-simples"] });
     },
     onError: () => toast.error("Não foi possível cadastrar o cliente"),
   });
@@ -111,9 +113,15 @@ function ClientesPage() {
   const abrirEdicao = (c: Cliente) => {
     setEditando(c);
     setForm({
-      nome: c.nome ?? "", telefone: c.telefone ?? "", email: c.email ?? "",
-      endereco: c.endereco ?? "", numero: c.numero ?? "", bairro: c.bairro ?? "",
-      cidade: c.cidade ?? "", observacoes: c.observacoes ?? "",
+      nome: c.nome ?? "",
+      cpf_cnpj: c.cpf_cnpj ?? "",
+      telefone: c.telefone ?? "",
+      email: c.email ?? "",
+      endereco: c.endereco ?? "",
+      numero: c.numero ?? "",
+      bairro: c.bairro ?? "",
+      cidade: c.cidade ?? "",
+      observacoes: c.observacoes ?? "",
     });
     setOpen(true);
   };
@@ -124,7 +132,7 @@ function ClientesPage() {
   };
 
   const filtrados = clientes.filter((c) =>
-    `${c.nome} ${c.telefone ?? ""} ${c.cidade ?? ""}`.toLowerCase().includes(busca.toLowerCase()),
+    `${c.nome} ${c.cpf_cnpj ?? ""} ${c.telefone ?? ""} ${c.cidade ?? ""}`.toLowerCase().includes(busca.toLowerCase()),
   );
 
   return (
@@ -147,42 +155,79 @@ function ClientesPage() {
             </DialogHeader>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-2 sm:col-span-2">
-                <Label>Nome</Label>
-                <Input value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} />
+                <Label>Nome do Cliente / Razão Social</Label>
+                <Input
+                  value={form.nome}
+                  placeholder="Nome completo ou Razão Social"
+                  onChange={(e) => setForm({ ...form, nome: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label>CPF / CNPJ</Label>
+                <Input
+                  value={form.cpf_cnpj}
+                  placeholder="Ex: 000.000.000-00 ou 00.000.000/0001-00"
+                  onChange={(e) => setForm({ ...form, cpf_cnpj: e.target.value })}
+                />
               </div>
               <div className="space-y-2">
                 <Label>Telefone</Label>
-                <Input value={form.telefone} onChange={(e) => setForm({ ...form, telefone: e.target.value })} />
+                <Input
+                  value={form.telefone}
+                  placeholder="(00) 00000-0000"
+                  onChange={(e) => setForm({ ...form, telefone: e.target.value })}
+                />
               </div>
               <div className="space-y-2">
                 <Label>E-mail</Label>
-                <Input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+                <Input
+                  value={form.email}
+                  placeholder="cliente@email.com"
+                  onChange={(e) => setForm({ ...form, email: e.target.value })}
+                />
               </div>
               <div className="space-y-2 sm:col-span-2">
                 <div className="grid grid-cols-[1fr_120px] gap-3">
                   <div className="space-y-2">
                     <Label>Endereço</Label>
-                    <Input value={form.endereco} onChange={(e) => setForm({ ...form, endereco: e.target.value })} />
+                    <Input
+                      value={form.endereco}
+                      placeholder="Rua, Avenida..."
+                      onChange={(e) => setForm({ ...form, endereco: e.target.value })}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label>Número</Label>
-                    <Input value={form.numero} onChange={(e) => setForm({ ...form, numero: e.target.value })} />
+                    <Input
+                      value={form.numero}
+                      placeholder="123 / Bloco"
+                      onChange={(e) => setForm({ ...form, numero: e.target.value })}
+                    />
                   </div>
                 </div>
               </div>
 
               <div className="space-y-2">
                 <Label>Bairro</Label>
-                <Input value={form.bairro} onChange={(e) => setForm({ ...form, bairro: e.target.value })} />
+                <Input
+                  value={form.bairro}
+                  placeholder="Bairro"
+                  onChange={(e) => setForm({ ...form, bairro: e.target.value })}
+                />
               </div>
               <div className="space-y-2">
                 <Label>Cidade</Label>
-                <Input value={form.cidade} onChange={(e) => setForm({ ...form, cidade: e.target.value })} />
+                <Input
+                  value={form.cidade}
+                  placeholder="Cidade"
+                  onChange={(e) => setForm({ ...form, cidade: e.target.value })}
+                />
               </div>
               <div className="space-y-2 sm:col-span-2">
                 <Label>Observações</Label>
                 <Textarea
                   value={form.observacoes}
+                  placeholder="Instruções de acesso, detalhes da portaria, etc."
                   onChange={(e) => setForm({ ...form, observacoes: e.target.value })}
                 />
               </div>
@@ -203,7 +248,7 @@ function ClientesPage() {
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           className="pl-9"
-          placeholder="Buscar por nome, telefone ou cidade"
+          placeholder="Buscar por nome, CPF/CNPJ, telefone ou cidade"
           value={busca}
           onChange={(e) => setBusca(e.target.value)}
         />
@@ -214,6 +259,7 @@ function ClientesPage() {
           <TableHeader>
             <TableRow>
               <TableHead>Nome</TableHead>
+              <TableHead>CPF / CNPJ</TableHead>
               <TableHead>Telefone</TableHead>
               <TableHead>Endereço</TableHead>
               <TableHead>Cidade</TableHead>
@@ -223,16 +269,21 @@ function ClientesPage() {
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-muted-foreground">Carregando...</TableCell>
+                <TableCell colSpan={6} className="text-muted-foreground">Carregando...</TableCell>
               </TableRow>
             ) : filtrados.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-muted-foreground">Nenhum cliente encontrado.</TableCell>
+                <TableCell colSpan={6} className="text-muted-foreground">Nenhum cliente encontrado.</TableCell>
               </TableRow>
             ) : (
               filtrados.map((c) => (
                 <TableRow key={c.id}>
-                  <TableCell className="font-medium">{c.nome}</TableCell>
+                  <TableCell className="font-medium">
+                    <div>{c.nome}</div>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground font-mono text-xs">
+                    {c.cpf_cnpj || "—"}
+                  </TableCell>
                   <TableCell>{c.telefone ?? "—"}</TableCell>
                   <TableCell>{[[c.endereco, c.numero].filter(Boolean).join(", "), c.bairro].filter(Boolean).join(" - ") || "—"}</TableCell>
                   <TableCell>{c.cidade ?? "—"}</TableCell>

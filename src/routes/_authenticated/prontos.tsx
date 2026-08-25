@@ -177,15 +177,39 @@ function ProntosPage() {
             <div key={s.id} className="surface-card space-y-3 p-5">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="font-medium">{s.clientes?.nome}</p>
-                  <p className="text-xs font-medium text-primary">Pedido #{String(s.numero_pedido ?? 0).padStart(6, "0")}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {tipoLabels[s.tipo]} · concluído em {formatDateTime(s.concluido_em)}
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-0.5 font-mono text-xs font-semibold text-primary">
+                      OS #{s.numero_pedido ? String(s.numero_pedido) : "—"}
+                    </span>
+                    <p className="font-semibold text-foreground">{s.clientes?.nome}</p>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {tipoLabels[s.tipo]} · Finalizado em {formatDateTime(s.concluido_em)}
                   </p>
                 </div>
                 <span className={`rounded-full px-3 py-1 text-xs font-medium ${statusBadgeClass[s.status]}`}>
                   {statusLabels[s.status]}
                 </span>
+              </div>
+
+              {/* Linha do Tempo de Execução */}
+              <div className="space-y-1 rounded-md bg-muted/40 p-2.5 text-xs">
+                {s.data_agendada && (
+                  <p className="text-muted-foreground">
+                    📅 Agendado para: <strong>{formatDateTime(s.data_agendada)}</strong>
+                    {s.duracao_estimada_minutos ? ` (${s.duracao_estimada_minutos} min estimados)` : ""}
+                  </p>
+                )}
+                {s.iniciado_em && (
+                  <p className="text-info font-medium">
+                    ▶️ Iniciado em: <strong>{formatDateTime(s.iniciado_em)}</strong>
+                  </p>
+                )}
+                {s.concluido_em && (
+                  <p className="text-primary font-medium">
+                    ✅ Finalizado em: <strong>{formatDateTime(s.concluido_em)}</strong>
+                  </p>
+                )}
               </div>
 
               {enderecoCompleto(s.clientes) && (

@@ -1,19 +1,44 @@
 import { jsPDF } from "jspdf";
 import { EMPRESA } from "./empresa";
 import { formatMoney } from "./servico";
+import { urlFoto } from "./fotos";
 import { enderecoCompleto, type ClienteResumo, type Servico, type ServicoProduto, type ServicoFoto } from "./types";
 
 const dataBR = (d: Date) => d.toLocaleDateString("pt-BR");
 
 async function carregarImagemBase64(url: string): Promise<{ data: string; width: number; height: number } | null> {
+  if (!url) return null;
+  if (url.startsWith("data:image/")) {
+    return { data: url, width: 800, height: 600 };
+  }
+  try {
+    const res = await fetch(url, { mode: "cors" });
+    if (res.ok) {
+      const blob = await res.blob();
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          if (typeof reader.result === "string") {
+            resolve({ data: reader.result, width: 800, height: 600 });
+          } else {
+            resolve(null);
+          }
+        };
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(blob);
+      });
+    }
+  } catch {}
+
+  // Fallback via Image element
   return new Promise((resolve) => {
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.onload = () => {
       try {
         const canvas = document.createElement("canvas");
-        canvas.width = img.naturalWidth || img.width;
-        canvas.height = img.naturalHeight || img.height;
+        canvas.width = img.naturalWidth || img.width || 800;
+        canvas.height = img.naturalHeight || img.height || 600;
         const ctx = canvas.getContext("2d");
         if (!ctx) return resolve(null);
         ctx.drawImage(img, 0, 0);
@@ -226,8 +251,22 @@ export async function gerarOrcamentoPdf(
     );
 
     // --- Página 2: Fotos ---
-    const fotosValidas = fotos.filter((f) => f?.url).map((f) => f.url).filter(Boolean);
-    if (fotosValidas.length > 0) {
+    const fotosResolvidas: string[] = [];
+    for (const f of fotos) {
+      if (f.storage_path) {
+        try {
+          const fresh = await urlFoto(f.storage_path, f.url);
+          if (fresh) fotosResolvidas.push(fresh);
+          else if (f.url) fotosResolvidas.push(f.url);
+        } catch {
+          if (f.url) fotosResolvidas.push(f.url);
+        }
+      } else if (f.url) {
+        fotosResolvidas.push(f.url);
+      }
+    }
+
+    if (fotosResolvidas.length > 0) {
       doc.addPage();
       let fy = 18;
 
@@ -246,8 +285,8 @@ export async function gerarOrcamentoPdf(
       const colHeight = 60;
       let col = 0;
 
-      for (let i = 0; i < fotosValidas.length; i++) {
-        const fotoUrl = fotosValidas[i];
+      for (let i = 0; i < fotosResolvidas.length; i++) {
+        const fotoUrl = fotosResolvidas[i];
         const imgData = await carregarImagemBase64(fotoUrl);
 
         if (fy + colHeight > 270) {

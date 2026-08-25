@@ -494,18 +494,40 @@ function executeMockQuery(sql: string, values: any[] = []) {
       };
       list.push(newUser);
       if (!mockData.profiles) mockData.profiles = [];
-      mockData.profiles.push({
-        id: newUser.id,
-        nome: newUser.raw_user_meta_data?.nome || newUser.email.split("@")[0],
-        telefone: null,
-        created_at: nowIso(),
-      });
+      const existingProfIdx = mockData.profiles.findIndex((p) => p.id === newUser.id);
+      if (existingProfIdx === -1) {
+        mockData.profiles.push({
+          id: newUser.id,
+          nome: newUser.raw_user_meta_data?.nome || newUser.email.split("@")[0],
+          telefone: null,
+          created_at: nowIso(),
+        });
+      }
+      if (newUser.raw_user_meta_data?.role) {
+        if (!mockData.user_roles) mockData.user_roles = [];
+        const existingRoleIdx = mockData.user_roles.findIndex((r) => r.user_id === newUser.id);
+        if (existingRoleIdx === -1) {
+          mockData.user_roles.push({
+            id: "ur-" + Math.random().toString(36).slice(2, 10),
+            user_id: newUser.id,
+            role: newUser.raw_user_meta_data.role,
+          });
+        }
+      }
+      saveMockDataToDisk();
       return { rows: [newUser], rowCount: 1 };
     }
     if (trimmed.startsWith("DELETE FROM auth.users WHERE id =")) {
       const id = values[0];
       const idx = list.findIndex((u) => u.id === id);
       if (idx !== -1) list.splice(idx, 1);
+      if (mockData.profiles) {
+        mockData.profiles = mockData.profiles.filter((p) => p.id !== id);
+      }
+      if (mockData.user_roles) {
+        mockData.user_roles = mockData.user_roles.filter((r) => r.user_id !== id);
+      }
+      saveMockDataToDisk();
       return { rows: [], rowCount: 1 };
     }
   }
@@ -517,14 +539,17 @@ function executeMockQuery(sql: string, values: any[] = []) {
     for (const v of values) {
       if (["admin", "atendente", "campo", "financeiro"].includes(v)) {
         roleArg = v;
-      } else if (typeof v === "string") {
+      } else if (typeof v === "string" && v) {
         userIdArg = v;
       }
     }
     const roles = mockData.user_roles || [];
-    const has = roles.some(
-      (r) => (r.user_id === userIdArg || userIdArg === "u-admin-001") && (r.role === roleArg || r.role === "admin" || roleArg === "admin")
-    );
+    const targetUserRole = roles.find((r) => r.user_id === userIdArg)?.role;
+    const has =
+      userIdArg === "u-admin-001" ||
+      targetUserRole === "admin" ||
+      targetUserRole === roleArg ||
+      (!roleArg && Boolean(targetUserRole));
     return { rows: [{ has_role: has }], rowCount: 1 };
   }
 
@@ -636,31 +661,84 @@ function executeMockQuery(sql: string, values: any[] = []) {
     let result = [...items];
 
     if (trimmed.includes(" WHERE ")) {
+      const wherePart = trimmed.split(/\s+WHERE\s+/i)[1]?.split(/\s+(?:ORDER\s+BY|LIMIT|OFFSET)\s+/i)[0] || "";
+
+      // Check IN condition: "col" IN ($1, $2, ...)
+      const inMatches = wherePart.matchAll(/"?([a-zA-Z0-9_]+)"?\s+IN\s*\(([\s\S]+?)\)/gi);
+      for (const im of inMatches) {
+        const col = im[1];
+        const placeholders = im[2].match(/\$(\d+)/g) || [];
+        const inVals = placeholders.map((p) => values[parseInt(p.replace("$", ""), 10) - 1]);
+        result = result.filter((item) => inVals.includes(item[col]));
+      }
+
+      // Check NOT IN condition: "col" NOT IN ($1, $2, ...)
+      const notInMatches = wherePart.matchAll(/"?([a-zA-Z0-9_]+)"?\s+NOT\s+IN\s*\(([\s\S]+?)\)/gi);
+      for (const nim of notInMatches) {
+        const col = nim[1];
+        const placeholders = nim[2].match(/\$(\d+)/g) || [];
+        const notInVals = placeholders.map((p) => values[parseInt(p.replace("$", ""), 10) - 1]);
+        result = result.filter((item) => !notInVals.includes(item[col]));
+      }
+
+      // Check IS NULL / IS NOT NULL
+      const isNullMatches = wherePart.matchAll(/"?([a-zA-Z0-9_]+)"?\s+IS\s+NULL/gi);
+      for (const inm of isNullMatches) {
+        const col = inm[1];
+        result = result.filter((item) => item[col] === null || item[col] === undefined);
+      }
+      const isNotNullMatches = wherePart.matchAll(/"?([a-zA-Z0-9_]+)"?\s+IS\s+NOT\s+NULL/gi);
+      for (const innm of isNotNullMatches) {
+        const col = innm[1];
+        result = result.filter((item) => item[col] !== null && item[col] !== undefined);
+      }
+
       values.forEach((v, idx) => {
         const paramPlaceholder = `$${idx + 1}`;
-        if (trimmed.includes(` = ${paramPlaceholder}`)) {
-          const colMatch = trimmed.match(new RegExp(`"?([a-zA-Z0-9_]+)"?\\s*=\\s*\\$${idx + 1}`));
+        if (wherePart.includes(` = ${paramPlaceholder}`)) {
+          const colMatch = wherePart.match(new RegExp(`"?([a-zA-Z0-9_]+)"?\\s*=\\s*\\$${idx + 1}`));
           if (colMatch) {
             const col = colMatch[1];
-            result = result.filter((item) => String(item[col]) === String(v));
+            result = result.filter((item) => String(item[col] ?? "") === String(v ?? ""));
           }
         }
-        if (trimmed.includes(` >= ${paramPlaceholder}`)) {
-          const colMatch = trimmed.match(new RegExp(`"?([a-zA-Z0-9_]+)"?\\s*>=\\s*\\$${idx + 1}`));
+        if (wherePart.includes(` <> ${paramPlaceholder}`) || wherePart.includes(` != ${paramPlaceholder}`)) {
+          const colMatch = wherePart.match(new RegExp(`"?([a-zA-Z0-9_]+)"?\\s*(?:<>|!=)\\s*\\$${idx + 1}`));
+          if (colMatch) {
+            const col = colMatch[1];
+            result = result.filter((item) => String(item[col] ?? "") !== String(v ?? ""));
+          }
+        }
+        if (wherePart.includes(` >= ${paramPlaceholder}`)) {
+          const colMatch = wherePart.match(new RegExp(`"?([a-zA-Z0-9_]+)"?\\s*>=\\s*\\$${idx + 1}`));
           if (colMatch) {
             const col = colMatch[1];
             result = result.filter((item) => item[col] >= v);
           }
         }
-        if (trimmed.includes(` <= ${paramPlaceholder}`)) {
-          const colMatch = trimmed.match(new RegExp(`"?([a-zA-Z0-9_]+)"?\\s*<=\\s*\\$${idx + 1}`));
+        if (wherePart.includes(` <= ${paramPlaceholder}`)) {
+          const colMatch = wherePart.match(new RegExp(`"?([a-zA-Z0-9_]+)"?\\s*<=\\s*\\$${idx + 1}`));
           if (colMatch) {
             const col = colMatch[1];
             result = result.filter((item) => item[col] <= v);
           }
         }
-        if (trimmed.includes(` ILIKE ${paramPlaceholder}`) || trimmed.includes(` LIKE ${paramPlaceholder}`)) {
-          const colMatch = trimmed.match(new RegExp(`"?([a-zA-Z0-9_]+)"?\\s*I?LIKE\\s*\\$${idx + 1}`, "i"));
+        if (wherePart.includes(` > ${paramPlaceholder}`) && !wherePart.includes(` >= ${paramPlaceholder}`)) {
+          const colMatch = wherePart.match(new RegExp(`"?([a-zA-Z0-9_]+)"?\\s*>\\s*\\$${idx + 1}`));
+          if (colMatch) {
+            const col = colMatch[1];
+            result = result.filter((item) => item[col] > v);
+          }
+        }
+        if (wherePart.includes(` < ${paramPlaceholder}`) && !wherePart.includes(` <= ${paramPlaceholder}`)) {
+          const colMatch = wherePart.match(new RegExp(`"?([a-zA-Z0-9_]+)"?\\s*<\\s*\\$${idx + 1}`));
+          if (colMatch) {
+            const col = colMatch[1];
+            result = result.filter((item) => item[col] < v);
+          }
+        }
+        if (wherePart.includes(` ILIKE ${paramPlaceholder}`) || wherePart.includes(` LIKE ${paramPlaceholder}`)) {
+          const colMatch = wherePart.match(new RegExp(`"?([a-zA-Z0-9_]+)"?\\s*I?LIKE\\s*\\$${idx + 1}`, "i"));
           if (colMatch) {
             const col = colMatch[1];
             const cleanPattern = String(v).replace(/%/g, "").toLowerCase();
@@ -674,6 +752,20 @@ function executeMockQuery(sql: string, values: any[] = []) {
       result = result.map((s) => {
         const c = (mockData.clientes || []).find((cl) => cl.id === s.cliente_id) || null;
         return { ...s, clientes: c };
+      });
+    }
+
+    // Handle ORDER BY
+    const orderMatch = trimmed.match(/ORDER\s+BY\s+"?([a-zA-Z0-9_]+)"?(?:\s+(ASC|DESC))?/i);
+    if (orderMatch) {
+      const orderCol = orderMatch[1];
+      const isDesc = (orderMatch[2] || "ASC").toUpperCase() === "DESC";
+      result.sort((a, b) => {
+        const valA = a[orderCol] ?? "";
+        const valB = b[orderCol] ?? "";
+        if (valA < valB) return isDesc ? 1 : -1;
+        if (valA > valB) return isDesc ? -1 : 1;
+        return 0;
       });
     }
 
@@ -695,6 +787,20 @@ function executeMockQuery(sql: string, values: any[] = []) {
     });
 
     if (!mockData[tableName]) mockData[tableName] = [];
+
+    // Auto-generate numeric numero_pedido for servicos if missing
+    if (tableName === "servicos") {
+      if (!newRecord.numero_pedido || isNaN(Number(newRecord.numero_pedido)) || Number(newRecord.numero_pedido) === 0) {
+        const maxNum = (mockData.servicos || []).reduce(
+          (max: number, s: any) => Math.max(max, Number(s.numero_pedido) || 1000),
+          1000
+        );
+        newRecord.numero_pedido = maxNum + 1;
+      } else {
+        newRecord.numero_pedido = Number(newRecord.numero_pedido);
+      }
+    }
+
     if (trimmed.includes("ON CONFLICT") && newRecord.id) {
       const existingIdx = mockData[tableName].findIndex((item) => item.id === newRecord.id);
       if (existingIdx !== -1) {
@@ -767,6 +873,7 @@ function executeMockQuery(sql: string, values: any[] = []) {
     const wherePart = deleteMatch[2] || "";
     if (!mockData[tableName]) mockData[tableName] = [];
     const deletedRows: any[] = [];
+    const deletedIds: string[] = [];
 
     mockData[tableName] = mockData[tableName].filter((item) => {
       let matchesWhere = true;
@@ -795,10 +902,29 @@ function executeMockQuery(sql: string, values: any[] = []) {
 
       if (matchesWhere) {
         deletedRows.push(item);
+        if (item.id) deletedIds.push(item.id);
         return false; // remove from array
       }
       return true; // keep
     });
+
+    // Cascade deletions if needed
+    if (tableName === "notas_fiscais" && deletedIds.length > 0 && mockData.notas_fiscais_itens) {
+      mockData.notas_fiscais_itens = mockData.notas_fiscais_itens.filter(
+        (nfi: any) => !deletedIds.includes(nfi.nota_fiscal_id)
+      );
+    }
+    if (tableName === "servicos" && deletedIds.length > 0) {
+      if (mockData.servico_produtos) {
+        mockData.servico_produtos = mockData.servico_produtos.filter((sp: any) => !deletedIds.includes(sp.servico_id));
+      }
+      if (mockData.servico_fotos) {
+        mockData.servico_fotos = mockData.servico_fotos.filter((sf: any) => !deletedIds.includes(sf.servico_id));
+      }
+      if (mockData.servico_centrais) {
+        mockData.servico_centrais = mockData.servico_centrais.filter((sc: any) => !deletedIds.includes(sc.servico_id));
+      }
+    }
 
     if (deletedRows.length > 0) saveMockDataToDisk();
     return { rows: deletedRows, rowCount: deletedRows.length };
