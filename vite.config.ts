@@ -14,7 +14,7 @@ const backendPlugin = () => ({
       ) {
         try {
           if (!appPromise) {
-            appPromise = import("./server/src/app.js").then((m) => m.default || m);
+            appPromise = import("./src/server/api.ts").then((m) => m.default || m);
           }
           const backendApp = await appPromise;
           return backendApp(req, res, next);

@@ -72,29 +72,38 @@ function ProntosPage() {
   }, [servicos, busca]);
 
   const baixarPdf = async (s: Servico) => {
-    const { data, error } = await supabase
-      .from("servico_produtos")
-      .select("*")
-      .eq("servico_id", s.id);
-    if (error) {
-      toast.error("Não foi possível carregar os produtos do serviço");
-      return;
+    const toastId = toast.loading("Gerando PDF do orçamento...");
+    try {
+      const { data, error } = await supabase
+        .from("servico_produtos")
+        .select("*")
+        .eq("servico_id", s.id);
+      if (error) {
+        toast.error("Não foi possível carregar os produtos do serviço", { id: toastId });
+        return;
+      }
+      const { data: fotos, error: fotosError } = await supabase
+        .from("servico_fotos")
+        .select("*")
+        .eq("servico_id", s.id)
+        .order("created_at");
+      if (fotosError) {
+        toast.error("Não foi possível carregar as fotos do serviço", { id: toastId });
+        return;
+      }
+      const ok = await gerarOrcamentoPdf(
+        s,
+        (data ?? []) as unknown as ServicoProduto[],
+        (fotos ?? []) as never,
+      );
+      if (!ok) {
+        toast.error("Não foi possível gerar o PDF", { id: toastId });
+      } else {
+        toast.success("PDF baixado com sucesso!", { id: toastId });
+      }
+    } catch {
+      toast.error("Erro inesperado ao gerar o PDF", { id: toastId });
     }
-    const { data: fotos, error: fotosError } = await supabase
-      .from("servico_fotos")
-      .select("*")
-      .eq("servico_id", s.id)
-      .order("created_at");
-    if (fotosError) {
-      toast.error("Não foi possível carregar as fotos do serviço");
-      return;
-    }
-    const ok = gerarOrcamentoPdf(
-      s,
-      (data ?? []) as unknown as ServicoProduto[],
-      (fotos ?? []) as never,
-    );
-    if (!ok) toast.error("Não foi possível preparar o PDF");
   };
 
 

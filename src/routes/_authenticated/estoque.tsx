@@ -18,6 +18,7 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { Edit, FileUp, Plus, Search, Trash2 } from "lucide-react";
+import { ConfirmDeleteDialog } from "@/components/ConfirmDeleteDialog";
 import { formatMoney } from "@/lib/servico";
 import { MARGEM_VENDA, parseNfe, type NotaXml } from "@/lib/xml-nfe";
 import type { ProdutoEstoque } from "@/lib/types";
@@ -109,6 +110,7 @@ function EstoquePage() {
   const inputXml = useRef<HTMLInputElement>(null);
   const [nota, setNota] = useState<NotaXml | null>(null);
   const [boletosXml, setBoletosXml] = useState<BoletoForm[]>([]);
+  const [itemParaExcluir, setItemParaExcluir] = useState<string | null>(null);
 
   const { data: itens = [], isLoading } = useQuery({
     queryKey: ["estoque"],
@@ -539,9 +541,7 @@ function EstoquePage() {
                       {role === "admin" && (
                         <Button
                           size="icon" variant="ghost" title="Excluir"
-                          onClick={() => {
-                            if (window.confirm(`Excluir o produto "${i.produto}"?`)) excluir.mutate(i.id);
-                          }}
+                          onClick={() => setItemParaExcluir(i.id)}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -554,6 +554,19 @@ function EstoquePage() {
           </TableBody>
         </Table>
       </div>
+
+      <ConfirmDeleteDialog
+        open={!!itemParaExcluir}
+        onOpenChange={(o) => !o && setItemParaExcluir(null)}
+        title="Excluir produto"
+        description="Tem certeza que deseja excluir este produto do estoque?"
+        onConfirm={() => {
+          if (itemParaExcluir) {
+            excluir.mutate(itemParaExcluir);
+          }
+        }}
+        isPending={excluir.isPending}
+      />
     </div>
   );
 }

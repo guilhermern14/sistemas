@@ -24,6 +24,7 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { ArrowDownCircle, ArrowUpCircle, FileUp, Loader2, Search, Trash2 } from "lucide-react";
+import { ConfirmDeleteDialog } from "@/components/ConfirmDeleteDialog";
 import { formatMoney } from "@/lib/servico";
 import { extrairTextoPdf } from "@/lib/pdf-texto";
 import { extrairLancamentosExtrato } from "@/lib/extrato.functions";
@@ -106,6 +107,7 @@ function CaixaPage() {
 
   const [form, setForm] = useState<FormLanc | null>(null);
   const [lendo, setLendo] = useState(false);
+  const [itemParaExcluir, setItemParaExcluir] = useState<string | null>(null);
 
   const { data: lancamentos = [], isLoading } = useQuery({
     queryKey: ["financeiro-lancamentos"],
@@ -144,20 +146,23 @@ function CaixaPage() {
   const soma = (lista: Lancamento[], fn: (l: Lancamento) => boolean) =>
     lista.filter(fn).reduce((a, l) => a + Number(l.valor), 0);
 
-  const entradas = soma(filtrados, (l) => l.tipo === "entrada");
-  const saidas = soma(filtrados, (l) => l.tipo === "saida");
+  const isEntrada = (tipo: string) => tipo === "entrada" || tipo === "receita";
+  const isSaida = (tipo: string) => tipo === "saida" || tipo === "despesa";
+
+  const entradas = soma(filtrados, (l) => isEntrada(l.tipo));
+  const saidas = soma(filtrados, (l) => isSaida(l.tipo));
   const saidaCartao = soma(
     filtrados,
-    (l) => l.tipo === "saida" && (l.forma === "cartao_credito" || l.forma === "cartao_debito"),
+    (l) => isSaida(l.tipo) && (l.forma === "cartao_credito" || l.forma === "cartao_debito"),
   );
 
   // Saldos acumulados (todos os lançamentos, sem filtro de período)
   const dinheiro =
-    soma(lancamentos, (l) => l.conta === "dinheiro" && l.tipo === "entrada") -
-    soma(lancamentos, (l) => l.conta === "dinheiro" && l.tipo === "saida");
+    soma(lancamentos, (l) => l.conta === "dinheiro" && isEntrada(l.tipo)) -
+    soma(lancamentos, (l) => l.conta === "dinheiro" && isSaida(l.tipo));
   const conta =
-    soma(lancamentos, (l) => l.conta === "banco" && l.tipo === "entrada") -
-    soma(lancamentos, (l) => l.conta === "banco" && l.tipo === "saida");
+    soma(lancamentos, (l) => l.conta === "banco" && isEntrada(l.tipo)) -
+    soma(lancamentos, (l) => l.conta === "banco" && isSaida(l.tipo));
 
   const salvar = useMutation({
     mutationFn: async (f: FormLanc) => {
@@ -444,9 +449,8 @@ function CaixaPage() {
                     <Button
                       size="icon"
                       variant="ghost"
-                      onClick={() => {
-                        if (confirm("Excluir este lançamento?")) remover.mutate(l.id);
-                      }}
+                      className="text-muted-foreground hover:text-destructive"
+                      onClick={() => setItemParaExcluir(l.id)}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -457,6 +461,19 @@ function CaixaPage() {
           </TableBody>
         </Table>
       </div>
+
+      <ConfirmDeleteDialog
+        open={!!itemParaExcluir}
+        onOpenChange={(o) => !o && setItemParaExcluir(null)}
+        title="Excluir lançamento"
+        description="Tem certeza que deseja excluir este lançamento financeiro?"
+        onConfirm={() => {
+          if (itemParaExcluir) {
+            remover.mutate(itemParaExcluir);
+          }
+        }}
+        isPending={remover.isPending}
+      />
 
       <Dialog open={!!form} onOpenChange={(o) => !o && setForm(null)}>
         <DialogContent>

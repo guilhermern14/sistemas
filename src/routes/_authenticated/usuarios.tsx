@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { Search, Trash2, UserPlus } from "lucide-react";
+import { ConfirmDeleteDialog } from "@/components/ConfirmDeleteDialog";
 import type { Profile } from "@/lib/types";
 import { criarUsuario, excluirUsuario, listarUsuarios } from "@/lib/usuarios.functions";
 
@@ -55,6 +56,7 @@ function UsuariosPage() {
   const [busca, setBusca] = useState("");
   const [aberto, setAberto] = useState(false);
   const [novo, setNovo] = useState(novoVazio);
+  const [itemParaExcluir, setItemParaExcluir] = useState<string | null>(null);
 
   const fnListar = useServerFn(listarUsuarios);
   const fnCriar = useServerFn(criarUsuario);
@@ -204,11 +206,7 @@ function UsuariosPage() {
                     <Button
                       size="icon"
                       variant="ghost"
-                      onClick={() => {
-                        if (window.confirm(`Excluir o usuário ${u.nome || mapaEmails.get(u.id) || ""}?`)) {
-                          excluir.mutate(u.id);
-                        }
-                      }}
+                      onClick={() => setItemParaExcluir(u.id)}
                     >
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
@@ -219,6 +217,19 @@ function UsuariosPage() {
           </TableBody>
         </Table>
       </div>
+
+      <ConfirmDeleteDialog
+        open={!!itemParaExcluir}
+        onOpenChange={(o) => !o && setItemParaExcluir(null)}
+        title="Excluir usuário"
+        description="Tem certeza que deseja excluir este usuário da empresa?"
+        onConfirm={() => {
+          if (itemParaExcluir) {
+            excluir.mutate(itemParaExcluir);
+          }
+        }}
+        isPending={excluir.isPending}
+      />
 
       <Dialog open={aberto} onOpenChange={setAberto}>
         <DialogContent>

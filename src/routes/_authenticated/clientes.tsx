@@ -17,6 +17,7 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { Edit, Plus, Search, Trash2 } from "lucide-react";
+import { ConfirmDeleteDialog } from "@/components/ConfirmDeleteDialog";
 import type { Cliente } from "@/lib/types";
 
 export const Route = createFileRoute("/_authenticated/clientes")({
@@ -49,6 +50,7 @@ function ClientesPage() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(vazio);
   const [editando, setEditando] = useState<Cliente | null>(null);
+  const [itemParaExcluir, setItemParaExcluir] = useState<string | null>(null);
 
   const { data: clientes = [], isLoading } = useQuery({
     queryKey: ["clientes"],
@@ -241,9 +243,7 @@ function ClientesPage() {
                       </Button>
                       <Button
                         size="icon" variant="ghost" title="Excluir"
-                        onClick={() => {
-                          if (window.confirm(`Excluir o cliente "${c.nome}"? Esta ação também pode excluir agendamentos vinculados.`)) excluir.mutate(c.id);
-                        }}
+                        onClick={() => setItemParaExcluir(c.id)}
                         disabled={excluir.isPending}
                       >
                         <Trash2 className="h-4 w-4" />
@@ -256,6 +256,19 @@ function ClientesPage() {
           </TableBody>
         </Table>
       </div>
+
+      <ConfirmDeleteDialog
+        open={!!itemParaExcluir}
+        onOpenChange={(o) => !o && setItemParaExcluir(null)}
+        title="Excluir cliente"
+        description="Tem certeza que deseja excluir este cliente? Esta ação também pode excluir agendamentos vinculados."
+        onConfirm={() => {
+          if (itemParaExcluir) {
+            excluir.mutate(itemParaExcluir);
+          }
+        }}
+        isPending={excluir.isPending}
+      />
     </div>
   );
 }

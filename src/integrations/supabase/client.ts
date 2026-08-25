@@ -31,19 +31,12 @@ const DEFAULT_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlLWxvY2FsIiwiaWF0IjoxNzg3MDE5NzM0LCJleHAiOjIxMDIzNzk3MzR9.OIa38aX2JS2G0WuJlnBcEE_LzIhMEfu8l6-Y1jJY-28";
 
 function createSupabaseClient() {
-  // Use import.meta.env for client-side (Vite build-time replacement)
-  // Fall back to window.location.origin or process.env
-  let SUPABASE_URL =
-    import.meta.env["VITE_SUPABASE_URL"] ||
-    process.env["SUPABASE_URL"] ||
-    (typeof window !== "undefined" ? window.location.origin : "http://localhost:3000");
-
-  // If VITE_SUPABASE_URL was set to localhost:8000, fallback to current origin in browser
-  if (
-    typeof window !== "undefined" &&
-    (SUPABASE_URL.includes(":8000") || SUPABASE_URL.includes("localhost:8000"))
-  ) {
+  let SUPABASE_URL = "";
+  if (typeof window !== "undefined") {
+    // In the browser, always use current origin so all auth/rest/storage calls go to this host/proxy
     SUPABASE_URL = window.location.origin;
+  } else {
+    SUPABASE_URL = process.env["SUPABASE_URL"] || "http://127.0.0.1:3000";
   }
 
   const SUPABASE_PUBLISHABLE_KEY =

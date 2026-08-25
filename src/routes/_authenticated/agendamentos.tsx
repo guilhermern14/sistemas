@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { Edit, MapPin, Plus, Search, Trash2 } from "lucide-react";
+import { ConfirmDeleteDialog } from "@/components/ConfirmDeleteDialog";
 import { ExecucaoDialog } from "@/components/ExecucaoDialog";
 import {
   formatDateTime,
@@ -69,6 +70,7 @@ function AgendamentosPage() {
   const [execucao, setExecucao] = useState<Servico | null>(null);
   const [busca, setBusca] = useState("");
   const [editando, setEditando] = useState<Servico | null>(null);
+  const [itemParaExcluir, setItemParaExcluir] = useState<string | null>(null);
 
   const { data: servicos = [], isLoading } = useQuery({
     queryKey: ["agendamentos", role, user?.id],
@@ -365,9 +367,7 @@ function AgendamentosPage() {
                   </Button>
                 )}
                 {role === "admin" && (
-                  <Button size="sm" variant="outline" onClick={() => {
-                    if (window.confirm(`Excluir o agendamento de "${s.clientes?.nome ?? "cliente"}"?`)) excluir.mutate(s.id);
-                  }}>
+                  <Button size="sm" variant="outline" onClick={() => setItemParaExcluir(s.id)}>
                     <Trash2 className="mr-2 h-4 w-4" /> Excluir
                   </Button>
                 )}
@@ -390,6 +390,19 @@ function AgendamentosPage() {
           ))}
         </div>
       )}
+
+      <ConfirmDeleteDialog
+        open={!!itemParaExcluir}
+        onOpenChange={(o) => !o && setItemParaExcluir(null)}
+        title="Excluir agendamento"
+        description="Tem certeza que deseja excluir este agendamento?"
+        onConfirm={() => {
+          if (itemParaExcluir) {
+            excluir.mutate(itemParaExcluir);
+          }
+        }}
+        isPending={excluir.isPending}
+      />
 
       <ExecucaoDialog servico={execucao} onClose={() => setExecucao(null)} verValores={verValores} />
     </div>

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ConfirmDeleteDialog } from "@/components/ConfirmDeleteDialog";
 import { toast } from "sonner";
 import { formatDateTime, formatMoney, statusBadgeClass, statusLabels, tipoLabels } from "@/lib/servico";
 import { Search } from "lucide-react";
@@ -28,6 +29,7 @@ function FinanceiroPage() {
   const [alvo, setAlvo] = useState<Servico | null>(null);
   const [desconto, setDesconto] = useState("0");
   const [busca, setBusca] = useState("");
+  const [itemParaExcluir, setItemParaExcluir] = useState<string | null>(null);
 
   const { data: servicos = [], isLoading } = useQuery({
     queryKey: ["financeiro-servicos"],
@@ -57,9 +59,11 @@ function FinanceiroPage() {
     },
     onSuccess: () => {
       setAlvo(null);
+      toast.success("Cobrança atualizada com sucesso");
       void qc.invalidateQueries({ queryKey: ["financeiro-servicos"] });
       void qc.invalidateQueries({ queryKey: ["dashboard-servicos"] });
       void qc.invalidateQueries({ queryKey: ["servicos-prontos"] });
+      void qc.invalidateQueries({ queryKey: ["servicos-a-cobrar"] });
     },
     onError: () => toast.error("Não foi possível atualizar a cobrança"),
   });
@@ -152,8 +156,13 @@ function FinanceiroPage() {
             <div key={s.id} className="surface-card space-y-3 p-5">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="font-medium">{s.clientes?.nome}</p>
-                  <p className="text-sm text-muted-foreground">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-primary/10 text-primary border border-primary/20">
+                      OS / Pedido #{s.numero_pedido ?? s.id.replace("s-", "")}
+                    </span>
+                    <p className="font-semibold text-base">{s.clientes?.nome}</p>
+                  </div>
+                  <p className="text-sm text-muted-foreground mt-0.5">
                     {s.clientes?.telefone ?? "sem telefone"} · {tipoLabels[s.tipo]}
                   </p>
                 </div>
@@ -248,11 +257,7 @@ function FinanceiroPage() {
                 <Button
                   size="sm"
                   variant="destructive"
-                  onClick={() => {
-                    if (confirm("Tem certeza que deseja excluir permanentemente este serviço?")) {
-                      remover.mutate(s.id);
-                    }
-                  }}
+                  onClick={() => setItemParaExcluir(s.id)}
                   disabled={remover.isPending}
                 >
                   Excluir serviço
@@ -262,6 +267,19 @@ function FinanceiroPage() {
           ))}
         </div>
       )}
+
+      <ConfirmDeleteDialog
+        open={!!itemParaExcluir}
+        onOpenChange={(o) => !o && setItemParaExcluir(null)}
+        title="Excluir serviço"
+        description="Tem certeza que deseja excluir permanentemente este serviço do financeiro?"
+        onConfirm={() => {
+          if (itemParaExcluir) {
+            remover.mutate(itemParaExcluir);
+          }
+        }}
+        isPending={remover.isPending}
+      />
 
       <Dialog open={!!alvo} onOpenChange={(o) => !o && setAlvo(null)}>
         <DialogContent>

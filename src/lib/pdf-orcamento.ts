@@ -1,156 +1,301 @@
+import { jsPDF } from "jspdf";
 import { EMPRESA } from "./empresa";
 import { formatMoney } from "./servico";
 import { enderecoCompleto, type ClienteResumo, type Servico, type ServicoProduto, type ServicoFoto } from "./types";
 
-const esc = (v: unknown) =>
-  String(v ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c] ?? c);
-
 const dataBR = (d: Date) => d.toLocaleDateString("pt-BR");
 
-/** Abre uma janela pronta para impressão / salvar em PDF do orçamento do serviço. */
-export function gerarOrcamentoPdf(servico: Servico, produtos: ServicoProduto[], fotos: ServicoFoto[] = [], targetWindow?: Window | null) {
-  const hoje = new Date();
-  const dataDocumento = servico.concluido_em ? new Date(servico.concluido_em) : hoje;
-  const validade = new Date(hoje.getTime() + EMPRESA.validadeDias * 86400000);
-  const cliente = servico.clientes as ClienteResumo | null | undefined;
-  const nomeCliente = cliente?.nome?.trim() || "Cliente";
-  const dataArquivo = dataDocumento.toLocaleDateString("pt-BR").replace(/\//g, "-");
-  const nomeArquivo = `${dataArquivo} - ${nomeCliente} - Nascimento Sistemas de Segurança`.replace(/[\\/:*?"<>|]/g, "-");
-
-  const totalProdutos = produtos.reduce(
-    (s, p) => s + Number(p.quantidade) * Number(p.valor_unitario),
-    0,
-  );
-  const maoObra = Number(servico.valor_mao_obra ?? 0);
-  const bruto = totalProdutos + maoObra;
-  const desconto = Number(servico.desconto ?? 0);
-  const total = servico.valor != null ? Number(servico.valor) : bruto - desconto;
-
-  const linhas = produtos
-    .map(
-      (p) => `<tr>
-        <td>${esc(p.codigo ?? "—")}</td>
-        <td>${esc(p.produto)}</td>
-        <td class="c">${Number(p.quantidade)}</td>
-        <td class="r">${formatMoney(Number(p.valor_unitario))}</td>
-        <td class="r">${formatMoney(Number(p.quantidade) * Number(p.valor_unitario))}</td>
-      </tr>`,
-    )
-    .join("");
-
-  const fotosValidas = fotos.filter((f) => f?.url).map((f) => f.url).filter(Boolean);
-  const fotosHtml = fotosValidas.length > 0
-    ? `<section class="page-break fotos-page"><h2>Fotos do serviço executado</h2><div class="fotos">${fotosValidas.map((url, i) => `<div class="foto"><img src="${esc(url)}" alt="Foto do serviço ${i + 1}"></div>`).join("")}</div></section>`
-    : `<section class="page-break fotos-page"><h2>Fotos do serviço executado</h2><p class="sub">Nenhuma foto foi adicionada ao serviço.</p></section>`;
-
-  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
-<title>${esc(nomeArquivo)}</title>
-<style>
-  *{box-sizing:border-box} body{font-family:Arial,Helvetica,sans-serif;color:#0f172a;margin:32px;font-size:13px}
-  h1{font-size:20px;margin:0} .sub{color:#475569;font-size:12px;line-height:1.5}
-  header{border-bottom:3px solid #1d4ed8;padding-bottom:12px;margin-bottom:18px}
-  h2{font-size:14px;margin:20px 0 8px;color:#1d4ed8}
-  table{width:100%;border-collapse:collapse} th,td{border-bottom:1px solid #e2e8f0;padding:6px 8px;text-align:left}
-  th{background:#f1f5f9;font-size:11px;text-transform:uppercase;color:#475569}
-  .r{text-align:right} .c{text-align:center}
-  .totais{margin-top:16px;margin-left:auto;width:280px}
-  .totais div{display:flex;justify-content:space-between;padding:4px 0}
-  .totais .final{border-top:2px solid #1d4ed8;font-weight:bold;font-size:15px;margin-top:6px;padding-top:8px}
-  footer{margin-top:28px;border-top:1px solid #e2e8f0;padding-top:10px;color:#475569;font-size:11px}
-  .page-break{break-before:page;page-break-before:always}
-  .fotos{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-  .foto{height:58mm;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center;break-inside:avoid}
-  .foto img{width:100%;height:100%;object-fit:contain}
-  @media print{body{margin:12mm}.foto{height:58mm}}
-</style></head><body>
-<header>
-  <h1>${esc(EMPRESA.nome)}</h1>
-  <p class="sub">CNPJ ${esc(EMPRESA.cnpj)}<br>${esc(EMPRESA.telefone)}</p>
-</header>
-
-<p class="sub">
-  <strong>Pedido nº:</strong> ${String(servico.numero_pedido ?? 0).padStart(6, "0")}<br>
-  <strong>Data do serviço:</strong> ${dataBR(dataDocumento)}<br>
-  <strong>Orçamento válido até:</strong> ${dataBR(validade)} (${EMPRESA.validadeDias} dias)
-</p>
-
-<h2>Cliente</h2>
-<p class="sub">
-  ${esc(cliente?.nome ?? "—")}<br>
-  ${esc(cliente?.telefone ?? "")}<br>
-  ${esc(enderecoCompleto(cliente))}
-</p>
-
-<h2>Serviço executado</h2>
-<p class="sub">${esc(servico.relatorio || servico.descricao || "—")}</p>
-
-<h2>Produtos utilizados</h2>
-<table>
-  <thead><tr><th>Código</th><th>Produto</th><th class="c">Qtd</th><th class="r">Unitário</th><th class="r">Total</th></tr></thead>
-  <tbody>${linhas || `<tr><td colspan="5">Nenhum produto utilizado.</td></tr>`}</tbody>
-</table>
-
-<div class="totais">
-  <div><span>Produtos</span><span>${formatMoney(totalProdutos)}</span></div>
-  <div><span>Mão de obra </span><span>${formatMoney(maoObra)}</span></div>
-  ${desconto > 0 ? `<div><span>Desconto</span><span>- ${formatMoney(desconto)}</span></div>` : ""}
-  <div class="final"><span>Total</span><span>${formatMoney(total)}</span></div>
-</div>
-
-${fotosHtml}
-
-<footer>
-  
-  ${esc(EMPRESA.nome)} · CNPJ ${esc(EMPRESA.cnpj)} · ${esc(EMPRESA.telefone)}
-<style>
-  /* Remove o endereço IP e a rota do rodapé/cabeçalho */
-  @page { 
-    margin: 0; 
-  }
-  /* Mantém uma margem segura para o conteúdo não colar na borda do papel */
-  body { 
-    margin: 1.5cm; 
-  }
-</style>
-</footer>
-<script>
-window.addEventListener('load', function () {
-  const imgs = Array.from(document.images);
-  const printNow = () => setTimeout(() => window.print(), 300);
-  if (!imgs.length) return printNow();
-  let remaining = imgs.length;
-  const done = () => { remaining -= 1; if (remaining <= 0) printNow(); };
-  imgs.forEach(img => {
-    if (img.complete) done();
-    else { img.addEventListener('load', done, { once: true }); img.addEventListener('error', done, { once: true }); }
+async function carregarImagemBase64(url: string): Promise<{ data: string; width: number; height: number } | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.naturalWidth || img.width;
+        canvas.height = img.naturalHeight || img.height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return resolve(null);
+        ctx.drawImage(img, 0, 0);
+        const data = canvas.toDataURL("image/jpeg", 0.85);
+        resolve({ data, width: canvas.width, height: canvas.height });
+      } catch {
+        resolve(null);
+      }
+    };
+    img.onerror = () => resolve(null);
+    img.src = url;
   });
-  setTimeout(printNow, 5000);
-});
-</script>
-</body></html>`;
+}
 
-  // Cria um iframe oculto na página atual
-  const iframe = document.createElement('iframe');
-  iframe.style.position = 'fixed';
-  iframe.style.right = '0';
-  iframe.style.bottom = '0';
-  iframe.style.width = '0';
-  iframe.style.height = '0';
-  iframe.style.border = '0';
-  
-  document.body.appendChild(iframe);
+/** Gera e faz download direto do arquivo PDF do orçamento do serviço. */
+export async function gerarOrcamentoPdf(
+  servico: Servico,
+  produtos: ServicoProduto[],
+  fotos: ServicoFoto[] = [],
+): Promise<boolean> {
+  try {
+    const hoje = new Date();
+    const dataDocumento = servico.concluido_em ? new Date(servico.concluido_em) : hoje;
+    const validade = new Date(hoje.getTime() + EMPRESA.validadeDias * 86400000);
+    const cliente = servico.clientes as ClienteResumo | null | undefined;
+    const nomeCliente = cliente?.nome?.trim() || "Cliente";
+    const dataArquivo = dataDocumento.toLocaleDateString("pt-BR").replace(/\//g, "-");
+    const nomeArquivo = `${dataArquivo} - ${nomeCliente} - Nascimento Sistemas de Seguranca`.replace(/[\\/:*?"<>|]/g, "-");
 
-  // Escreve o HTML dentro do iframe oculto
-  const doc = iframe.contentWindow?.document;
-  if (!doc) return false;
-  doc.open();
-  doc.write(html);
-  doc.close();
+    const totalProdutos = produtos.reduce(
+      (s, p) => s + Number(p.quantidade) * Number(p.valor_unitario),
+      0,
+    );
+    const maoObra = Number(servico.valor_mao_obra ?? 0);
+    const bruto = totalProdutos + maoObra;
+    const desconto = Number(servico.desconto ?? 0);
+    const total = servico.valor != null ? Number(servico.valor) : bruto - desconto;
 
-  // Remove o iframe da tela após a impressão ser disparada
-  setTimeout(() => {
-    document.body.removeChild(iframe);
-  }, 1000);
+    const doc = new jsPDF({
+      orientation: "portrait",
+      unit: "mm",
+      format: "a4",
+    });
 
-  return true;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const margin = 15;
+    let y = 18;
+
+    // --- Header ---
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(16);
+    doc.setTextColor(29, 78, 216); // Blue #1d4ed8
+    doc.text(EMPRESA.nome, margin, y);
+
+    y += 5;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(71, 85, 105);
+    doc.text(`CNPJ: ${EMPRESA.cnpj}  |  Telefone: ${EMPRESA.telefone}`, margin, y);
+
+    y += 4;
+    doc.setDrawColor(29, 78, 216);
+    doc.setLineWidth(0.8);
+    doc.line(margin, y, pageWidth - margin, y);
+
+    // --- Info bloco ---
+    y += 7;
+    doc.setFontSize(9);
+    doc.setTextColor(15, 23, 42);
+    const numPed = String(servico.numero_pedido ?? 0).padStart(6, "0");
+    doc.setFont("helvetica", "bold");
+    doc.text(`Pedido nº: ${numPed}`, margin, y);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Data do serviço: ${dataBR(dataDocumento)}`, margin + 60, y);
+    doc.text(`Válido até: ${dataBR(validade)} (${EMPRESA.validadeDias} dias)`, margin + 120, y);
+
+    // --- Cliente ---
+    y += 8;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.setTextColor(29, 78, 216);
+    doc.text("CLIENTE", margin, y);
+
+    y += 5;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`Nome: ${cliente?.nome ?? "—"}`, margin, y);
+    if (cliente?.telefone) {
+      doc.text(`Telefone: ${cliente.telefone}`, margin + 90, y);
+    }
+    y += 4.5;
+    const end = enderecoCompleto(cliente);
+    if (end) {
+      doc.text(`Endereço: ${end}`, margin, y);
+      y += 4.5;
+    }
+
+    // --- Serviço Executado ---
+    y += 3;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.setTextColor(29, 78, 216);
+    doc.text("SERVIÇO EXECUTADO", margin, y);
+
+    y += 5;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(15, 23, 42);
+    const descText = servico.relatorio || servico.descricao || "—";
+    const splitDesc = doc.splitTextToSize(descText, pageWidth - margin * 2);
+    doc.text(splitDesc, margin, y);
+    y += splitDesc.length * 4.5 + 2;
+
+    // --- Tabela Produtos ---
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.setTextColor(29, 78, 216);
+    doc.text("PRODUTOS UTILIZADOS", margin, y);
+    y += 4;
+
+    // Header da tabela
+    doc.setFillColor(241, 245, 249);
+    doc.rect(margin, y, pageWidth - margin * 2, 7, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.setTextColor(71, 85, 105);
+    doc.text("CÓDIGO", margin + 2, y + 4.5);
+    doc.text("PRODUTO", margin + 28, y + 4.5);
+    doc.text("QTD", margin + 110, y + 4.5, { align: "center" });
+    doc.text("UNITÁRIO", margin + 140, y + 4.5, { align: "right" });
+    doc.text("TOTAL", pageWidth - margin - 2, y + 4.5, { align: "right" });
+    y += 7;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.setTextColor(15, 23, 42);
+
+    if (produtos.length === 0) {
+      doc.text("Nenhum produto utilizado.", margin + 2, y + 5);
+      y += 8;
+    } else {
+      for (const p of produtos) {
+        if (y > 250) {
+          doc.addPage();
+          y = 18;
+        }
+        const cod = p.codigo || "—";
+        const nome = doc.splitTextToSize(p.produto || "", 78);
+        const qtd = String(Number(p.quantidade || 0));
+        const unit = formatMoney(Number(p.valor_unitario || 0));
+        const subTot = formatMoney(Number(p.quantidade || 0) * Number(p.valor_unitario || 0));
+
+        doc.text(cod, margin + 2, y + 4);
+        doc.text(nome, margin + 28, y + 4);
+        doc.text(qtd, margin + 110, y + 4, { align: "center" });
+        doc.text(unit, margin + 140, y + 4, { align: "right" });
+        doc.text(subTot, pageWidth - margin - 2, y + 4, { align: "right" });
+
+        const rowH = Math.max(nome.length * 4.5, 6);
+        doc.setDrawColor(226, 232, 240);
+        doc.setLineWidth(0.2);
+        doc.line(margin, y + rowH, pageWidth - margin, y + rowH);
+        y += rowH;
+      }
+    }
+
+    // --- Totais ---
+    y += 4;
+    if (y > 245) {
+      doc.addPage();
+      y = 18;
+    }
+    const totBoxX = pageWidth - margin - 75;
+    doc.setFontSize(9);
+    doc.text("Produtos:", totBoxX, y);
+    doc.text(formatMoney(totalProdutos), pageWidth - margin - 2, y, { align: "right" });
+    y += 4.5;
+
+    doc.text("Mão de obra:", totBoxX, y);
+    doc.text(formatMoney(maoObra), pageWidth - margin - 2, y, { align: "right" });
+    y += 4.5;
+
+    if (desconto > 0) {
+      doc.text("Desconto:", totBoxX, y);
+      doc.text(`- ${formatMoney(desconto)}`, pageWidth - margin - 2, y, { align: "right" });
+      y += 4.5;
+    }
+
+    doc.setDrawColor(29, 78, 216);
+    doc.setLineWidth(0.5);
+    doc.line(totBoxX, y, pageWidth - margin, y);
+    y += 4.5;
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.setTextColor(29, 78, 216);
+    doc.text("TOTAL:", totBoxX, y);
+    doc.text(formatMoney(total), pageWidth - margin - 2, y, { align: "right" });
+
+    // --- Rodapé Página 1 ---
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(148, 163, 184);
+    doc.text(
+      `${EMPRESA.nome} · CNPJ ${EMPRESA.cnpj} · ${EMPRESA.telefone}`,
+      pageWidth / 2,
+      285,
+      { align: "center" },
+    );
+
+    // --- Página 2: Fotos ---
+    const fotosValidas = fotos.filter((f) => f?.url).map((f) => f.url).filter(Boolean);
+    if (fotosValidas.length > 0) {
+      doc.addPage();
+      let fy = 18;
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(14);
+      doc.setTextColor(29, 78, 216);
+      doc.text("FOTOS DO SERVIÇO EXECUTADO", margin, fy);
+
+      fy += 4;
+      doc.setDrawColor(29, 78, 216);
+      doc.setLineWidth(0.5);
+      doc.line(margin, fy, pageWidth - margin, fy);
+      fy += 8;
+
+      const colWidth = 85;
+      const colHeight = 60;
+      let col = 0;
+
+      for (let i = 0; i < fotosValidas.length; i++) {
+        const fotoUrl = fotosValidas[i];
+        const imgData = await carregarImagemBase64(fotoUrl);
+
+        if (fy + colHeight > 270) {
+          doc.addPage();
+          fy = 18;
+          col = 0;
+        }
+
+        const posX = margin + col * (colWidth + 10);
+        const posY = fy;
+
+        if (imgData) {
+          doc.setDrawColor(226, 232, 240);
+          doc.setLineWidth(0.3);
+          doc.rect(posX, posY, colWidth, colHeight);
+          doc.addImage(imgData.data, "JPEG", posX + 1, posY + 1, colWidth - 2, colHeight - 2, undefined, "FAST");
+        } else {
+          doc.setFillColor(248, 250, 252);
+          doc.rect(posX, posY, colWidth, colHeight, "F");
+          doc.setFontSize(8);
+          doc.setTextColor(148, 163, 184);
+          doc.text(`Foto ${i + 1}`, posX + colWidth / 2, posY + colHeight / 2, { align: "center" });
+        }
+
+        if (col === 1) {
+          col = 0;
+          fy += colHeight + 8;
+        } else {
+          col = 1;
+        }
+      }
+
+      // Rodapé Página 2
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.setTextColor(148, 163, 184);
+      doc.text(
+        `${EMPRESA.nome} · CNPJ ${EMPRESA.cnpj} · ${EMPRESA.telefone}`,
+        pageWidth / 2,
+        285,
+        { align: "center" },
+      );
+    }
+
+    doc.save(`${nomeArquivo}.pdf`);
+    return true;
+  } catch (err) {
+    console.error("Erro ao gerar PDF:", err);
+    return false;
+  }
 }

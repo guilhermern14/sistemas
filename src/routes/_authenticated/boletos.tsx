@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { Plus, Search } from "lucide-react";
+import { ConfirmDeleteDialog } from "@/components/ConfirmDeleteDialog";
 import { formatMoney } from "@/lib/servico";
 import type { Boleto } from "@/lib/types";
 
@@ -61,6 +62,7 @@ function BoletosPage() {
   const [ano, setAno] = useState(String(agora.getFullYear()));
   const [open, setOpen] = useState(false);
   const [novo, setNovo] = useState({ fornecedor: "", descricao: "", valor: "", vencimento: hojeISO() });
+  const [itemParaExcluir, setItemParaExcluir] = useState<string | null>(null);
   const [busca, setBusca] = useState("");
 
   const { data: boletos = [], isLoading } = useQuery({
@@ -105,7 +107,10 @@ function BoletosPage() {
         .eq("id", b.id);
       if (error) throw error;
     },
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["boletos"] }),
+    onSuccess: (_, b) => {
+      toast.success(!b.pago ? "Boleto marcado como pago!" : "Boleto marcado como pendente");
+      void qc.invalidateQueries({ queryKey: ["boletos"] });
+    },
     onError: () => toast.error("Não foi possível atualizar o boleto"),
   });
 
@@ -323,11 +328,7 @@ function BoletosPage() {
                     <Button
                       size="sm"
                       variant="destructive"
-                      onClick={() => {
-                        if (confirm("Tem certeza que deseja excluir permanentemente este boleto?")) {
-                          remover.mutate(b.id);
-                        }
-                      }}
+                      onClick={() => setItemParaExcluir(b.id)}
                       disabled={remover.isPending}
                     >
                       Excluir
@@ -339,6 +340,19 @@ function BoletosPage() {
           ))}
         </div>
       )}
+
+      <ConfirmDeleteDialog
+        open={!!itemParaExcluir}
+        onOpenChange={(o) => !o && setItemParaExcluir(null)}
+        title="Excluir boleto"
+        description="Tem certeza que deseja excluir permanentemente este boleto?"
+        onConfirm={() => {
+          if (itemParaExcluir) {
+            remover.mutate(itemParaExcluir);
+          }
+        }}
+        isPending={remover.isPending}
+      />
     </div>
   );
 }

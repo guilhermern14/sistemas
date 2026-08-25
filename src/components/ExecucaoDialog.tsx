@@ -10,7 +10,7 @@ import { toast } from "sonner";
 import { ImagePlus, Plus, Search, Trash2, X } from "lucide-react";
 import { formatMoney } from "@/lib/servico";
 import { calcMaoObra } from "@/lib/empresa";
-import { assinarUrl } from "@/lib/fotos";
+import { assinarUrl, urlFoto } from "@/lib/fotos";
 import { gerarIdSeguro } from "@/lib/id";
 import type { ProdutoEstoque, Servico, ServicoCentral, ServicoFoto, ServicoProduto } from "@/lib/types";
 
@@ -102,23 +102,53 @@ export function ExecucaoDialog({
 
   useEffect(() => {
     if (!fotosSalvas) return;
-    setFotos(fotosSalvas);
+    let cancel = false;
+    Promise.all(
+      fotosSalvas.map(async (f) => {
+        try {
+          if (f.storage_path) {
+            const freshUrl = await urlFoto(f.storage_path, f.url);
+            return { ...f, url: freshUrl || f.url };
+          }
+        } catch {}
+        return f;
+      })
+    ).then((resolved) => {
+      if (!cancel) setFotos(resolved);
+    });
+    return () => {
+      cancel = true;
+    };
   }, [fotosSalvas]);
 
   useEffect(() => {
     if (!centraisSalvas) return;
-    setCentrais(
-      centraisSalvas.map((c) => ({
-        id: c.id,
-        nome: c.nome,
-        mac: c.mac ?? "",
-        usuario: c.usuario ?? "",
-        senha: c.senha ?? "",
-        foto_url: c.foto_url,
-        foto_path: c.foto_path,
-        foto_file: null,
-      })),
-    );
+    let cancel = false;
+    Promise.all(
+      centraisSalvas.map(async (c) => {
+        let fUrl = c.foto_url;
+        try {
+          if (c.foto_path) {
+            fUrl = await urlFoto(c.foto_path, c.foto_url);
+          }
+        } catch {}
+        return {
+          id: c.id,
+          nome: c.nome,
+          mac: c.mac ?? "",
+          usuario: c.usuario ?? "",
+          senha: c.senha ?? "",
+          foto_url: fUrl,
+          foto_path: c.foto_path,
+          foto_file: null,
+        };
+      })
+    ).then((resolved) => {
+      if (!cancel) setCentrais(resolved);
+    });
+    return () => {
+      cancel = true;
+    };
   }, [centraisSalvas]);
 
   useEffect(() => {
@@ -287,13 +317,13 @@ export function ExecucaoDialog({
   });
 
   const removerFoto = async (foto: ServicoFoto) => {
-    if (!window.confirm("Excluir esta foto do serviço?")) return;
     const { error } = await supabase.from("servico_fotos").delete().eq("id", foto.id);
     if (error) {
       toast.error("Não foi possível excluir a foto");
       return;
     }
     setFotos((atual) => atual.filter((f) => f.id !== foto.id));
+    toast.success("Foto removida");
     void supabase.storage.from("servico-fotos").remove([foto.storage_path]);
   };
 
