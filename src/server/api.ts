@@ -577,34 +577,55 @@ function executeMockQuery(sql: string, values: any[] = []) {
     if (!mockData.notas_fiscais_itens) mockData.notas_fiscais_itens = [];
     if (!mockData.estoque) mockData.estoque = [];
 
-    const novaNota = {
-      id: notaId,
-      tipo: p_tipo,
-      data_emissao: p_data_emissao,
-      fornecedor: p_fornecedor,
-      numero: p_numero,
-      serie: p_serie,
-      chave: p_chave,
-      valor_total: p_valor_total,
-      origem: p_origem,
-      created_at: nowIso(),
-    };
-    mockData.notas_fiscais.push(novaNota);
+    const existingNotaIdx = mockData.notas_fiscais.findIndex(
+      (n: any) =>
+        (p_chave && n.chave && String(n.chave).trim() === String(p_chave).trim()) ||
+        (p_numero && n.numero && String(n.numero).trim() === String(p_numero).trim() && n.fornecedor === p_fornecedor && n.tipo === p_tipo)
+    );
+
+    let targetNotaId = notaId;
+
+    if (existingNotaIdx !== -1) {
+      targetNotaId = mockData.notas_fiscais[existingNotaIdx].id;
+      mockData.notas_fiscais[existingNotaIdx].valor_total = p_valor_total;
+      mockData.notas_fiscais[existingNotaIdx].data_emissao = p_data_emissao;
+      mockData.notas_fiscais[existingNotaIdx].serie = p_serie || mockData.notas_fiscais[existingNotaIdx].serie;
+      mockData.notas_fiscais[existingNotaIdx].chave = p_chave || mockData.notas_fiscais[existingNotaIdx].chave;
+      mockData.notas_fiscais[existingNotaIdx].origem = p_origem || mockData.notas_fiscais[existingNotaIdx].origem;
+      // Remove old items for this note to re-insert fresh
+      mockData.notas_fiscais_itens = mockData.notas_fiscais_itens.filter(
+        (i: any) => i.nota_fiscal_id !== targetNotaId
+      );
+    } else {
+      const novaNota = {
+        id: targetNotaId,
+        tipo: p_tipo,
+        data_emissao: p_data_emissao,
+        fornecedor: p_fornecedor,
+        numero: p_numero,
+        serie: p_serie,
+        chave: p_chave,
+        valor_total: p_valor_total,
+        origem: p_origem,
+        created_at: nowIso(),
+      };
+      mockData.notas_fiscais.unshift(novaNota);
+    }
 
     for (const it of p_itens) {
       const itemId = "nfi-" + Math.random().toString(36).slice(2, 10);
       const qtd = Number(it.quantidade || 1);
       const vCusto = Number(it.valor_custo || 0);
-      const vVenda = Number(it.valor_venda || (vCusto * 1.7).toFixed(2));
+      const vVenda = Number(it.valor_venda || (vCusto * 1.37).toFixed(2));
       const cod = it.codigo ? String(it.codigo).trim() : null;
       const prodNome = String(it.produto || "Produto").trim();
 
       mockData.notas_fiscais_itens.push({
         id: itemId,
-        nota_fiscal_id: notaId,
+        nota_fiscal_id: targetNotaId,
         codigo: cod,
         produto: prodNome,
-        unidade: it.unidade || "UN",
+        unidade: it.unidade || "un",
         quantidade: qtd,
         valor_custo: vCusto,
         valor_venda: vVenda,
@@ -614,7 +635,7 @@ function executeMockQuery(sql: string, values: any[] = []) {
       if (p_tipo === "compra") {
         // Atualizar estoque ou cadastrar novo produto
         const existingIdx = mockData.estoque.findIndex(
-          (e) => (cod && e.codigo && String(e.codigo).trim().toLowerCase() === cod.toLowerCase()) ||
+          (e: any) => (cod && e.codigo && String(e.codigo).trim().toLowerCase() === cod.toLowerCase()) ||
                  (String(e.produto).trim().toLowerCase() === prodNome.toLowerCase())
         );
 
@@ -625,23 +646,26 @@ function executeMockQuery(sql: string, values: any[] = []) {
           if (vVenda > 0) itemEstoque.valor_venda = vVenda;
           if (!itemEstoque.codigo && cod) itemEstoque.codigo = cod;
           if (it.unidade) itemEstoque.unidade = it.unidade;
+          if (itemEstoque.updated_at !== undefined) itemEstoque.updated_at = nowIso();
         } else {
           mockData.estoque.push({
             id: "e-" + Math.random().toString(36).slice(2, 10),
             codigo: cod,
             produto: prodNome,
-            unidade: it.unidade || "UN",
+            unidade: it.unidade || "un",
             quantidade: qtd,
             valor_custo: vCusto,
             valor_venda: vVenda,
-            observacoes: `Entrada via NF ${p_numero || ""}`,
+            observacoes: `Entrada via NF ${p_numero || ""}`.trim(),
             created_at: nowIso(),
+            updated_at: nowIso(),
           });
         }
       }
     }
 
-    return { rows: [{ importar_nota_fiscal: notaId, id: notaId }], rowCount: 1 };
+    saveMockDataToDisk();
+    return { rows: [{ importar_nota_fiscal: targetNotaId, id: targetNotaId }], rowCount: 1 };
   }
 
   // Table queries
@@ -1422,31 +1446,51 @@ restRouter.post("/rpc/:fn", async (req: Request, res: Response) => {
     if (!mockData.notas_fiscais_itens) mockData.notas_fiscais_itens = [];
     if (!mockData.estoque) mockData.estoque = [];
 
-    const novaNota = {
-      id: notaId,
-      tipo: p_tipo,
-      data_emissao: p_data_emissao,
-      fornecedor: p_fornecedor,
-      numero: p_numero,
-      serie: p_serie,
-      chave: p_chave,
-      valor_total: p_valor_total,
-      origem: p_origem,
-      created_at: nowIso(),
-    };
-    mockData.notas_fiscais.unshift(novaNota);
+    const existingNotaIdx = mockData.notas_fiscais.findIndex(
+      (n: any) =>
+        (p_chave && n.chave && String(n.chave).trim() === String(p_chave).trim()) ||
+        (p_numero && n.numero && String(n.numero).trim() === String(p_numero).trim() && n.fornecedor === p_fornecedor && n.tipo === p_tipo)
+    );
+
+    let targetNotaId = notaId;
+
+    if (existingNotaIdx !== -1) {
+      targetNotaId = mockData.notas_fiscais[existingNotaIdx].id;
+      mockData.notas_fiscais[existingNotaIdx].valor_total = p_valor_total;
+      mockData.notas_fiscais[existingNotaIdx].data_emissao = p_data_emissao;
+      mockData.notas_fiscais[existingNotaIdx].serie = p_serie || mockData.notas_fiscais[existingNotaIdx].serie;
+      mockData.notas_fiscais[existingNotaIdx].chave = p_chave || mockData.notas_fiscais[existingNotaIdx].chave;
+      mockData.notas_fiscais[existingNotaIdx].origem = p_origem || mockData.notas_fiscais[existingNotaIdx].origem;
+      mockData.notas_fiscais_itens = mockData.notas_fiscais_itens.filter(
+        (i: any) => i.nota_fiscal_id !== targetNotaId
+      );
+    } else {
+      const novaNota = {
+        id: targetNotaId,
+        tipo: p_tipo,
+        data_emissao: p_data_emissao,
+        fornecedor: p_fornecedor,
+        numero: p_numero,
+        serie: p_serie,
+        chave: p_chave,
+        valor_total: p_valor_total,
+        origem: p_origem,
+        created_at: nowIso(),
+      };
+      mockData.notas_fiscais.unshift(novaNota);
+    }
 
     for (const it of p_itens) {
       const itemId = "nfi-" + Math.random().toString(36).slice(2, 10);
       const qtd = Number(it.quantidade || 1);
       const vCusto = Number(it.valor_custo || 0);
-      const vVenda = Number(it.valor_venda || (vCusto > 0 ? (vCusto * 1.7).toFixed(2) : 0));
+      const vVenda = Number(it.valor_venda || (vCusto > 0 ? (vCusto * 1.37).toFixed(2) : 0));
       const cod = it.codigo ? String(it.codigo).trim() : null;
       const prodNome = String(it.produto || "Produto").trim();
 
       mockData.notas_fiscais_itens.push({
         id: itemId,
-        nota_fiscal_id: notaId,
+        nota_fiscal_id: targetNotaId,
         codigo: cod,
         produto: prodNome,
         unidade: it.unidade || "un",
@@ -1459,7 +1503,7 @@ restRouter.post("/rpc/:fn", async (req: Request, res: Response) => {
       if (p_tipo === "compra") {
         // Atualizar estoque ou cadastrar novo produto
         const existingIdx = mockData.estoque.findIndex(
-          (e) =>
+          (e: any) =>
             (cod && e.codigo && String(e.codigo).trim().toLowerCase() === cod.toLowerCase()) ||
             String(e.produto || "").trim().toLowerCase() === prodNome.toLowerCase()
         );
@@ -1489,7 +1533,7 @@ restRouter.post("/rpc/:fn", async (req: Request, res: Response) => {
       }
     }
     saveMockDataToDisk();
-    return res.json(notaId);
+    return res.json(targetNotaId);
   }
 
   const keys = Object.keys(args);

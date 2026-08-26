@@ -28,6 +28,7 @@ import { ConfirmDeleteDialog } from "@/components/ConfirmDeleteDialog";
 import { formatMoney } from "@/lib/servico";
 import { extrairTextoPdf } from "@/lib/pdf-texto";
 import { extrairLancamentosExtrato } from "@/lib/extrato.functions";
+import { extrairLancamentosDeterministicos } from "@/lib/extrato-parser";
 import type { Lancamento, LancamentoForma, LancamentoTipo } from "@/lib/types";
 
 export const Route = createFileRoute("/_authenticated/caixa")({
@@ -211,7 +212,19 @@ function CaixaPage() {
         toast.error("Não foi possível ler o texto deste PDF.");
         return;
       }
-      const itens = await extrair({ data: { texto } });
+
+      let itens: any[] = [];
+      try {
+        itens = await extrair({ data: { texto } });
+      } catch (errServer) {
+        console.warn("Falha no endpoint do servidor, utilizando parser local:", errServer);
+        itens = extrairLancamentosDeterministicos(texto);
+      }
+
+      if (!itens || itens.length === 0) {
+        itens = extrairLancamentosDeterministicos(texto);
+      }
+
       if (!itens.length) {
         toast.error("Nenhum lançamento encontrado no extrato.");
         return;

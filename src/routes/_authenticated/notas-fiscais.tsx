@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
-import { Eye, FileUp, Plus, ReceiptText, Trash2 } from "lucide-react";
+import { Eye, FileText, FileUp, Plus, ReceiptText, Trash2 } from "lucide-react";
 import { ConfirmDeleteDialog } from "@/components/ConfirmDeleteDialog";
 import { formatMoney } from "@/lib/servico";
 import { MARGEM_VENDA, parseNfe, type NotaXml } from "@/lib/xml-nfe";
@@ -63,6 +63,7 @@ function NotasFiscaisPage() {
   const [tipoManual, setTipoManual] = useState<NotaFiscalTipo>("compra");
   const [tipoImportacao, setTipoImportacao] = useState<NotaFiscalTipo>("compra");
   const [notaXml, setNotaXml] = useState<NotaXml | null>(null);
+  const [boletosXml, setBoletosXml] = useState<Array<{ numero: string; vencimento: string; valor: string }>>([]);
   const [openXml, setOpenXml] = useState(false);
   const [detalhes, setDetalhes] = useState<NotaFiscal | null>(null);
   const [itensDetalhes, setItensDetalhes] = useState<NotaFiscalItem[]>([]);
@@ -77,6 +78,7 @@ function NotasFiscaisPage() {
     valor_total: "",
   });
   const [itens, setItens] = useState<ItemForm[]>([novoItem()]);
+  const [boletosManual, setBoletosManual] = useState<Array<{ vencimento: string; valor: string }>>([]);
 
   const { data: notas = [], isLoading } = useQuery({
     queryKey: ["notas-fiscais"],
@@ -133,8 +135,31 @@ function NotasFiscaisPage() {
   const totalCompras = filtradas.filter((n) => n.tipo === "compra").reduce((s, n) => s + Number(n.valor_total), 0);
   const totalEmitidas = filtradas.filter((n) => n.tipo === "emitida").reduce((s, n) => s + Number(n.valor_total), 0);
 
+  const salvarBoletosTabela = async (
+    lista: Array<{ numero?: string; vencimento: string; valor: string | number }>,
+    fornecedor: string | null,
+    notaNumero: string | null,
+  ) => {
+    const validos = lista.filter((b) => b.vencimento && Number(b.valor) > 0);
+    if (validos.length === 0) return 0;
+    const { error } = await supabase.from("boletos").insert(
+      validos.map((b, idx) => ({
+        fornecedor: fornecedor || null,
+        descricao: `NF ${notaNumero || "S/N"}${b.numero ? ` · Parc ${b.numero}` : ` · Parc ${idx + 1}`}`,
+        valor: Number(b.valor),
+        vencimento: b.vencimento,
+        origem: "xml",
+        created_by: user?.id ?? null,
+      })) as never,
+    );
+    if (error) {
+      console.error("Erro ao salvar boletos:", error);
+    }
+    return validos.length;
+  };
+
   const importarNota = useMutation({
-    mutationFn: async ({ nota, tipo }: { nota: NotaXml; tipo: NotaFiscalTipo }) => {
+    mutationFn: async ({ nota, tipo, boletos }: { nota: NotaXml; tipo: NotaFiscalTipo; boletos: Array<{ numero: string; vencimento: string; valor: string }> }) => {
       const itensJson = nota.itens.map((i) => ({
         codigo: i.codigo || null,
         produto: i.produto,
@@ -144,10 +169,12 @@ function NotasFiscaisPage() {
         valor_venda: i.valor_venda,
       }));
 
+      const fornecedorOuCliente = tipo === "compra" ? (nota.emitente || nota.fornecedor) : (nota.destinatario || nota.emitente);
+
       const { data, error } = await supabase.rpc("importar_nota_fiscal", {
         p_tipo: tipo,
         p_data_emissao: nota.data_emissao,
-        p_fornecedor: tipo === "compra" ? nota.emitente : nota.destinatario,
+        p_fornecedor: fornecedorOuCliente || null,
         p_numero: nota.numero || null,
         p_serie: nota.serie || null,
         p_chave: nota.chave || null,
@@ -156,14 +183,36 @@ function NotasFiscaisPage() {
         p_origem: "xml",
       } as never);
       if (error) throw error;
-      return data as string;
+
+      // Salvar boletos no contas a pagar / boletos quando for compra
+      let boletosSalvos = 0;
+      if (tipo === "compra" && boletos.length > 0) {
+        boletosSalvos = await salvarBoletosTabela(boletos, fornecedorOuCliente, nota.numero);
+      }
+
+      return { notaId: data as string, boletosSalvos };
     },
-    onSuccess: (_, vars) => {
-      toast.success(vars.tipo === "compra" ? "Nota de compra importada e estoque atualizado." : "Nota emitida cadastrada.");
+    onSuccess: (res, vars) => {
+      const msgBoleto = res.boletosSalvos > 0 ? ` e ${res.boletosSalvos} boleto(s) lançado(s)` : "";
+      toast.success(
+        vars.tipo === "compra"
+          ? `Nota de compra importada, estoque atualizado${msgBoleto}.`
+          : "Nota emitida cadastrada com sucesso."
+      );
       setNotaXml(null);
+      setBoletosXml([]);
       setOpenXml(false);
+
+      // Se a nota é de outro período/mês, exibir tudo para o usuário vê-la na hora
+      const [y, m] = vars.nota.data_emissao.split("-").map(Number);
+      if (periodo === "mes" && (y !== Number(ano) || (m - 1) !== Number(mes))) {
+        setPeriodo("todos");
+      }
+
       void qc.invalidateQueries({ queryKey: ["notas-fiscais"] });
       void qc.invalidateQueries({ queryKey: ["estoque"] });
+      void qc.invalidateQueries({ queryKey: ["boletos"] });
+      void qc.invalidateQueries({ queryKey: ["boletos-hoje"] });
     },
     onError: (error: Error) => toast.error(error.message || "Não foi possível importar a nota."),
   });
@@ -196,6 +245,11 @@ function NotasFiscaisPage() {
         p_origem: "manual",
       } as never);
       if (error) throw error;
+
+      if (tipoManual === "compra" && boletosManual.length > 0) {
+        await salvarBoletosTabela(boletosManual, manual.fornecedor, manual.numero);
+      }
+
       return data as string;
     },
     onSuccess: () => {
@@ -203,8 +257,11 @@ function NotasFiscaisPage() {
       setOpenManual(false);
       setManual({ data_emissao: hoje(), fornecedor: "", numero: "", serie: "", valor_total: "" });
       setItens([novoItem()]);
+      setBoletosManual([]);
       void qc.invalidateQueries({ queryKey: ["notas-fiscais"] });
       void qc.invalidateQueries({ queryKey: ["estoque"] });
+      void qc.invalidateQueries({ queryKey: ["boletos"] });
+      void qc.invalidateQueries({ queryKey: ["boletos-hoje"] });
     },
     onError: (error: Error) => toast.error(error.message || "Não foi possível salvar a nota."),
   });
@@ -217,6 +274,13 @@ function NotasFiscaisPage() {
         return;
       }
       setNotaXml(lida);
+      setBoletosXml(
+        lida.boletos.map((b, idx) => ({
+          numero: b.numero || String(idx + 1),
+          vencimento: b.vencimento,
+          valor: String(b.valor),
+        }))
+      );
       setOpenXml(true);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Não foi possível ler o XML.");
@@ -410,22 +474,129 @@ function NotasFiscaisPage() {
         <DialogContent className="max-h-[85vh] max-w-4xl overflow-y-auto">
           <DialogHeader><DialogTitle>Conferir nota antes de importar</DialogTitle></DialogHeader>
           {notaXml && (
-            <div className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-4 text-sm">
-                <div><span className="text-muted-foreground">Tipo:</span> {tipoLabel(tipoImportacao)}</div>
-                <div><span className="text-muted-foreground">Número:</span> {notaXml.numero || "—"}</div>
-                <div><span className="text-muted-foreground">Data:</span> {notaXml.data_emissao.split("-").reverse().join("/")}</div>
-                <div><span className="text-muted-foreground">Valor:</span> {formatMoney(notaXml.valor_total)}</div>
+            <div className="space-y-5">
+              <div className="grid gap-3 sm:grid-cols-4 text-sm bg-muted/40 p-3 rounded-lg">
+                <div><span className="text-muted-foreground block text-xs">Tipo:</span> <span className="font-medium">{tipoLabel(tipoImportacao)}</span></div>
+                <div><span className="text-muted-foreground block text-xs">Número / Série:</span> <span className="font-medium">{notaXml.numero || "—"}{notaXml.serie ? ` / ${notaXml.serie}` : ""}</span></div>
+                <div><span className="text-muted-foreground block text-xs">Data de emissão:</span> <span className="font-medium">{notaXml.data_emissao.split("-").reverse().join("/")}</span></div>
+                <div><span className="text-muted-foreground block text-xs">Valor Total:</span> <span className="font-semibold text-primary">{formatMoney(notaXml.valor_total)}</span></div>
               </div>
-              <p className="text-sm"><span className="text-muted-foreground">{tipoImportacao === "compra" ? "Fornecedor" : "Cliente"}:</span> {tipoImportacao === "compra" ? notaXml.emitente : notaXml.destinatario || "—"}</p>
-              <Table>
-                <TableHeader><TableRow><TableHead>Código</TableHead><TableHead>Produto</TableHead><TableHead>Qtd</TableHead><TableHead>Custo</TableHead><TableHead>Venda</TableHead></TableRow></TableHeader>
-                <TableBody>{notaXml.itens.map((i, idx) => <TableRow key={`${i.codigo}-${idx}`}><TableCell>{i.codigo || "—"}</TableCell><TableCell>{i.produto}</TableCell><TableCell>{i.quantidade} {i.unidade}</TableCell><TableCell>{formatMoney(i.valor_custo)}</TableCell><TableCell>{formatMoney(i.valor_venda)}</TableCell></TableRow>)}</TableBody>
-              </Table>
-              {tipoImportacao === "compra" && <p className="text-sm text-muted-foreground">Esta importação vai somar as quantidades ao estoque. Produtos já existentes não serão duplicados.</p>}
+
+              <div>
+                <p className="text-sm font-medium"><span className="text-muted-foreground">{tipoImportacao === "compra" ? "Fornecedor" : "Cliente"}:</span> {tipoImportacao === "compra" ? (notaXml.emitente || notaXml.fornecedor) : (notaXml.destinatario || "—")}</p>
+                {notaXml.chave && <p className="text-xs text-muted-foreground font-mono truncate mt-0.5" title={notaXml.chave}>Chave: {notaXml.chave}</p>}
+              </div>
+
+              <div>
+                <h4 className="text-sm font-semibold mb-2">Produtos ({notaXml.itens.length})</h4>
+                <div className="border rounded-md overflow-x-auto max-h-56">
+                  <Table>
+                    <TableHeader><TableRow><TableHead>Código</TableHead><TableHead>Produto</TableHead><TableHead>Qtd</TableHead><TableHead>Custo</TableHead><TableHead>Venda (+37%)</TableHead></TableRow></TableHeader>
+                    <TableBody>{notaXml.itens.map((i, idx) => <TableRow key={`${i.codigo}-${idx}`}><TableCell>{i.codigo || "—"}</TableCell><TableCell className="font-medium">{i.produto}</TableCell><TableCell>{i.quantidade} {i.unidade}</TableCell><TableCell>{formatMoney(i.valor_custo)}</TableCell><TableCell>{formatMoney(i.valor_venda)}</TableCell></TableRow>)}</TableBody>
+                  </Table>
+                </div>
+              </div>
+
+              {tipoImportacao === "compra" && (
+                <div className="border border-border/80 rounded-lg p-3.5 bg-background">
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <h4 className="text-sm font-semibold flex items-center gap-1.5">
+                        <FileText className="h-4 w-4 text-primary" />
+                        Boletos e Parcelas a Pagar ({boletosXml.length})
+                      </h4>
+                      <p className="text-xs text-muted-foreground">Estes boletos serão lançados automaticamente na página de Boletos (Contas a Pagar).</p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setBoletosXml((prev) => [...prev, { numero: String(prev.length + 1), vencimento: notaXml.data_emissao, valor: "" }])}
+                    >
+                      <Plus className="h-3.5 w-3.5 mr-1" /> Adicionar Parcela
+                    </Button>
+                  </div>
+
+                  {boletosXml.length === 0 ? (
+                    <div className="text-xs text-muted-foreground py-2 text-center border border-dashed rounded p-3 bg-muted/20">
+                      Nenhuma duplicata/parcela no XML. Clique em "Adicionar Parcela" caso deseje gerar boleto a pagar desta nota.
+                    </div>
+                  ) : (
+                    <div className="space-y-2 max-h-44 overflow-y-auto pt-1">
+                      {boletosXml.map((b, idx) => (
+                        <div key={idx} className="flex items-center gap-2 text-xs">
+                          <div className="w-20">
+                            <Input
+                              placeholder="Parcela"
+                              value={b.numero}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setBoletosXml((prev) => prev.map((item, i) => i === idx ? { ...item, numero: val } : item));
+                              }}
+                              className="h-8 text-xs"
+                            />
+                          </div>
+                          <div className="flex-1">
+                            <Input
+                              type="date"
+                              value={b.vencimento}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setBoletosXml((prev) => prev.map((item, i) => i === idx ? { ...item, vencimento: val } : item));
+                              }}
+                              className="h-8 text-xs"
+                            />
+                          </div>
+                          <div className="w-32">
+                            <Input
+                              type="number"
+                              step="0.01"
+                              placeholder="Valor R$"
+                              value={b.valor}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setBoletosXml((prev) => prev.map((item, i) => i === idx ? { ...item, valor: val } : item));
+                              }}
+                              className="h-8 text-xs"
+                            />
+                          </div>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8 text-destructive hover:bg-destructive/10 shrink-0"
+                            onClick={() => setBoletosXml((prev) => prev.filter((_, i) => i !== idx))}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {tipoImportacao === "compra" && (
+                <p className="text-xs text-muted-foreground bg-primary/5 p-2.5 rounded border border-primary/20">
+                  ✓ Atualiza quantidades e custos no <strong>Estoque</strong><br />
+                  ✓ Registra a nota fiscal na página de <strong>Notas Fiscais</strong><br />
+                  ✓ Importa e agenda boletos na página de <strong>Boletos</strong>
+                </p>
+              )}
             </div>
           )}
-          <DialogFooter><Button onClick={() => notaXml && importarNota.mutate({ nota: notaXml, tipo: tipoImportacao })} disabled={!notaXml || importarNota.isPending}>{importarNota.isPending ? "Importando..." : tipoImportacao === "compra" ? "Importar e atualizar estoque" : "Cadastrar nota emitida"}</Button></DialogFooter>
+          <DialogFooter>
+            <Button
+              onClick={() => notaXml && importarNota.mutate({ nota: notaXml, tipo: tipoImportacao, boletos: boletosXml })}
+              disabled={!notaXml || importarNota.isPending}
+            >
+              {importarNota.isPending
+                ? "Importando..."
+                : tipoImportacao === "compra"
+                  ? `Importar Nota, Estoque e Boletos (${boletosXml.length})`
+                  : "Cadastrar nota emitida"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

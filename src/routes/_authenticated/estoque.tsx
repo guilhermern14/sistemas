@@ -251,44 +251,80 @@ function EstoquePage() {
   const importar = useMutation({
     mutationFn: async () => {
       if (!nota) return;
-      for (const item of nota.itens) {
-        const existente = item.codigo
-          ? itens.find((i) => i.codigo === item.codigo)
-          : itens.find((i) => i.produto.toLowerCase() === item.produto.toLowerCase());
+      const itensJson = nota.itens.map((i) => ({
+        codigo: i.codigo || null,
+        produto: i.produto,
+        unidade: i.unidade,
+        quantidade: i.quantidade,
+        valor_custo: i.valor_custo,
+        valor_venda: i.valor_venda,
+      }));
 
-        if (existente) {
-          const { error } = await supabase
-            .from("estoque")
-            .update({
-              quantidade: Number(existente.quantidade) + item.quantidade,
+      // Salva ou atualiza a nota fiscal e o estoque de forma unificada
+      const { error: errRpc } = await supabase.rpc("importar_nota_fiscal", {
+        p_tipo: "compra",
+        p_data_emissao: nota.data_emissao,
+        p_fornecedor: nota.fornecedor || nota.emitente || null,
+        p_numero: nota.numero || null,
+        p_serie: nota.serie || null,
+        p_chave: nota.chave || null,
+        p_valor_total: nota.valor_total,
+        p_itens: itensJson,
+        p_origem: "xml",
+      } as never);
+
+      if (errRpc) {
+        // Fallback direto no estoque se a RPC falhar
+        for (const item of nota.itens) {
+          const existente = item.codigo
+            ? itens.find((i) => i.codigo === item.codigo)
+            : itens.find((i) => i.produto.toLowerCase() === item.produto.toLowerCase());
+
+          if (existente) {
+            const { error } = await supabase
+              .from("estoque")
+              .update({
+                quantidade: Number(existente.quantidade) + item.quantidade,
+                valor_custo: item.valor_custo,
+                valor_venda: item.valor_venda,
+                unidade: item.unidade,
+              } as never)
+              .eq("id", existente.id);
+            if (error) throw error;
+          } else {
+            const { error } = await supabase.from("estoque").insert({
+              codigo: item.codigo || null,
+              produto: item.produto,
+              unidade: item.unidade,
+              quantidade: item.quantidade,
               valor_custo: item.valor_custo,
               valor_venda: item.valor_venda,
-              unidade: item.unidade,
-            } as never)
-            .eq("id", existente.id);
-          if (error) throw error;
-        } else {
-          const { error } = await supabase.from("estoque").insert({
-            codigo: item.codigo || null,
-            produto: item.produto,
-            unidade: item.unidade,
-            quantidade: item.quantidade,
-            valor_custo: item.valor_custo,
-            valor_venda: item.valor_venda,
-          } as never);
-          if (error) throw error;
+            } as never);
+            if (error) throw error;
+          }
         }
       }
-      await salvarBoletos(boletosXml, "xml", nota.fornecedor || null, "Entrada por XML de nota fiscal");
+
+      const validosBoletos = boletosXml.filter((b) => b.vencimento && Number(b.valor) > 0);
+      if (validosBoletos.length > 0) {
+        await salvarBoletos(
+          validosBoletos,
+          "xml",
+          nota.fornecedor || nota.emitente || null,
+          `NF ${nota.numero || "S/N"} · Entrada XML`,
+        );
+      }
     },
     onSuccess: () => {
-      toast.success("Produtos e boletos lançados");
+      toast.success("Estoque, nota fiscal e boletos atualizados com sucesso");
       setNota(null);
       setBoletosXml([]);
       void qc.invalidateQueries({ queryKey: ["estoque"] });
+      void qc.invalidateQueries({ queryKey: ["notas-fiscais"] });
       void qc.invalidateQueries({ queryKey: ["boletos"] });
+      void qc.invalidateQueries({ queryKey: ["boletos-hoje"] });
     },
-    onError: () => toast.error("Não foi possível importar os produtos"),
+    onError: () => toast.error("Não foi possível importar a nota fiscal"),
   });
 
   const lerArquivo = async (file: File) => {
