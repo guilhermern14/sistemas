@@ -1,0 +1,471 @@
+{
+  "auth.users": [
+    {
+      "id": "u-admin-001",
+      "email": "admin@nascimento.com",
+      "encrypted_password": "$2b$10$EQRDHwU1DEtll0uBdakoqeiEDXmyvZcHdITWoz2G8yZN3fI45BdB2",
+      "raw_user_meta_data": {
+        "nome": "Administrador Nascimento"
+      },
+      "created_at": "2026-08-25T16:35:55.561Z",
+      "updated_at": "2026-08-25T16:35:55.561Z"
+    },
+    {
+      "id": "u-atendente-002",
+      "email": "atendente@nascimento.com",
+      "encrypted_password": "$2b$10$rI4NhBwpnvS7tuoojYZ13ubcVrg8Er2EgaObSQ8aPcBuj0bPYTLMu",
+      "raw_user_meta_data": {
+        "nome": "Mariana Costa"
+      },
+      "created_at": "2026-08-25T16:35:55.673Z",
+      "updated_at": "2026-08-25T16:35:55.673Z"
+    },
+    {
+      "id": "u-campo-003",
+      "email": "campo@nascimento.com",
+      "encrypted_password": "$2b$10$UJKbsc6ESxVQkesnriUBRenUTYH7hkdI1x6w3FFr4oq8YxhIWXLhC",
+      "raw_user_meta_data": {
+        "nome": "Carlos Silva (Técnico)"
+      },
+      "created_at": "2026-08-25T16:35:55.782Z",
+      "updated_at": "2026-08-25T16:35:55.782Z"
+    },
+    {
+      "id": "u-financeiro-004",
+      "email": "financeiro@nascimento.com",
+      "encrypted_password": "$2b$10$qvwX2WSEF7DWmVVxSLvtxOmqyNwP9I6IBTo0.5aa0vd6u6.qmLDEi",
+      "raw_user_meta_data": {
+        "nome": "Juliana Santos (Financeiro)"
+      },
+      "created_at": "2026-08-25T16:35:55.897Z",
+      "updated_at": "2026-08-25T16:35:55.897Z"
+    }
+  ],
+  "profiles": [
+    {
+      "id": "u-admin-001",
+      "nome": "Administrador Nascimento",
+      "telefone": "(11) 98765-4321",
+      "created_at": "2026-08-25T16:35:55.897Z"
+    },
+    {
+      "id": "u-atendente-002",
+      "nome": "Mariana Costa",
+      "telefone": "(11) 97654-3210",
+      "created_at": "2026-08-25T16:35:55.897Z"
+    },
+    {
+      "id": "u-campo-003",
+      "nome": "Carlos Silva (Técnico)",
+      "telefone": "(11) 96543-2109",
+      "created_at": "2026-08-25T16:35:55.897Z"
+    },
+    {
+      "id": "u-financeiro-004",
+      "nome": "Juliana Santos (Financeiro)",
+      "telefone": "(11) 95432-1098",
+      "created_at": "2026-08-25T16:35:55.897Z"
+    }
+  ],
+  "user_roles": [
+    {
+      "id": "ur-1",
+      "user_id": "u-admin-001",
+      "role": "admin"
+    },
+    {
+      "id": "ur-2",
+      "user_id": "u-atendente-002",
+      "role": "atendente"
+    },
+    {
+      "id": "ur-3",
+      "user_id": "u-campo-003",
+      "role": "campo"
+    },
+    {
+      "id": "ur-4",
+      "user_id": "u-financeiro-004",
+      "role": "financeiro"
+    }
+  ],
+  "clientes": [
+    {
+      "id": "c-001",
+      "nome": "Condomínio Residencial Parque das Flores",
+      "cpf_cnpj": "12.345.678/0001-90",
+      "telefone": "(11) 3456-7890",
+      "email": "sindico@parquedasflores.com.br",
+      "endereco": "Av. Paulista, 1500",
+      "numero": "1500",
+      "bairro": "Bela Vista",
+      "cidade": "São Paulo",
+      "observacoes": "Portaria 24h, agendar visitas com antecedência.",
+      "created_by": "u-admin-001",
+      "created_at": "2026-08-01T10:00:00.000Z"
+    },
+    {
+      "id": "c-002",
+      "nome": "Supermercado Boa Vista Ltda",
+      "cpf_cnpj": "98.765.432/0001-10",
+      "telefone": "(11) 99887-1122",
+      "email": "contato@superboavista.com.br",
+      "endereco": "Rua do Comércio, 340",
+      "numero": "340",
+      "bairro": "Centro",
+      "cidade": "São Paulo",
+      "observacoes": "Manutenção periódica nas 16 câmeras e alarme perimetral.",
+      "created_by": "u-admin-001",
+      "created_at": "2026-08-05T14:30:00.000Z"
+    },
+    {
+      "id": "c-003",
+      "nome": "Dr. Roberto Martins - Clínica Odontológica",
+      "cpf_cnpj": "321.654.987-00",
+      "telefone": "(11) 98123-4567",
+      "email": "roberto@clinicaroberto.med.br",
+      "endereco": "Rua Vergueiro, 890",
+      "numero": "Conj 42",
+      "bairro": "Vila Mariana",
+      "cidade": "São Paulo",
+      "observacoes": "Instalação de interfonia e controle de acesso biométrico.",
+      "created_by": "u-admin-001",
+      "created_at": "2026-08-10T09:15:00.000Z"
+    },
+    {
+      "id": "id-m1qaatuf",
+      "created_at": "2026-08-25T16:37:18.755Z",
+      "nome": "Guilherme",
+      "cpf_cnpj": "07424802925",
+      "telefone": "47997419033",
+      "email": "",
+      "endereco": "rua gil vicente",
+      "numero": "289",
+      "bairro": "quinta dos açorianos",
+      "cidade": "barra velha",
+      "observacoes": "",
+      "created_by": "u-admin-001"
+    }
+  ],
+  "estoque": [
+    {
+      "id": "e-001",
+      "codigo": "CAM-IP4M",
+      "produto": "Câmera Bullet IP 4MP Infravermelho 30m Intelbras",
+      "quantidade": 18,
+      "unidade": "UN",
+      "valor_custo": 185,
+      "valor_venda": 320,
+      "observacoes": "Resolução 2K com visão noturna inteligente",
+      "created_at": "2026-08-01T08:00:00.000Z"
+    },
+    {
+      "id": "e-002",
+      "codigo": "DVR-8CH",
+      "produto": "Gravador Digital DVR 8 Canais Full HD 1080p",
+      "quantidade": 7,
+      "unidade": "UN",
+      "valor_custo": 340,
+      "valor_venda": 590,
+      "observacoes": "Suporta HD até 8TB",
+      "created_at": "2026-08-01T08:00:00.000Z"
+    },
+    {
+      "id": "e-003",
+      "codigo": "SEN-IVP",
+      "produto": "Sensor de Presença Infravermelho Passivo Pet",
+      "quantidade": 35,
+      "unidade": "UN",
+      "valor_custo": 45,
+      "valor_venda": 89,
+      "observacoes": "Imune a animais até 20kg",
+      "created_at": "2026-08-01T08:00:00.000Z"
+    },
+    {
+      "id": "e-004",
+      "codigo": "CEN-CHOQ",
+      "produto": "Central de Choque para Cerca Elétrica 18.000V",
+      "quantidade": 4,
+      "unidade": "UN",
+      "valor_custo": 280,
+      "valor_venda": 490,
+      "observacoes": "Com arme/desarme por controle e Wi-Fi",
+      "created_at": "2026-08-01T08:00:00.000Z"
+    },
+    {
+      "id": "e-005",
+      "codigo": "CAB-COAX",
+      "produto": "Cabo Coaxial HD 4mm Bipolar 100m",
+      "quantidade": 12,
+      "unidade": "RL",
+      "valor_custo": 95,
+      "valor_venda": 160,
+      "observacoes": "95% de malha de cobre",
+      "created_at": "2026-08-01T08:00:00.000Z"
+    },
+    {
+      "id": "e-006",
+      "codigo": "BAT-12V7A",
+      "produto": "Bateria Selada VRLA 12V 7Ah para Alarme e Cerca",
+      "quantidade": 22,
+      "unidade": "UN",
+      "valor_custo": 68,
+      "valor_venda": 120,
+      "observacoes": "Unipower / Moura",
+      "created_at": "2026-08-01T08:00:00.000Z"
+    },
+    {
+      "id": "e-34etmyln",
+      "codigo": "2525",
+      "produto": "camera",
+      "unidade": "un",
+      "quantidade": 1,
+      "valor_custo": 50,
+      "valor_venda": 68.5,
+      "observacoes": "Entrada via NF 5505550",
+      "created_at": "2026-08-25T16:38:31.216Z",
+      "updated_at": "2026-08-25T16:38:31.216Z"
+    }
+  ],
+  "servicos": [
+    {
+      "id": "s-001",
+      "numero_pedido": 101,
+      "cliente_id": "c-001",
+      "tipo": "manutencao",
+      "status": "agendado",
+      "data_agendada": "2026-08-26",
+      "horas_mao_obra": 3,
+      "valor_mao_obra": 250,
+      "valor_bruto": 680,
+      "desconto": 30,
+      "valor": 650,
+      "descricao": "Substituição de 2 câmeras no estacionamento e verificação do DVR principal.",
+      "produtos_usados": "2x CAM-IP4M, 1x CAB-COAX",
+      "relatorio": null,
+      "tecnico_id": "u-campo-003",
+      "created_by": "u-admin-001",
+      "pos_venda": null,
+      "pos_venda_em": null,
+      "concluido_em": null,
+      "pago_em": null,
+      "created_at": "2026-08-20T11:00:00.000Z"
+    },
+    {
+      "id": "s-002",
+      "numero_pedido": 102,
+      "cliente_id": "c-002",
+      "tipo": "instalacao",
+      "status": "em_andamento",
+      "data_agendada": "2026-08-25",
+      "horas_mao_obra": 5,
+      "valor_mao_obra": 450,
+      "valor_bruto": 1450,
+      "desconto": 50,
+      "valor": 1400,
+      "descricao": "Instalação da nova central de choque e sensores perimetrais no depósito.",
+      "produtos_usados": "1x CEN-CHOQ, 4x SEN-IVP, 2x BAT-12V7A",
+      "relatorio": "Instalação iniciada. Passagem de cabos 80% concluída.",
+      "tecnico_id": "u-campo-003",
+      "created_by": "u-admin-001",
+      "pos_venda": null,
+      "pos_venda_em": null,
+      "concluido_em": null,
+      "pago_em": null,
+      "created_at": "2026-08-21T09:30:00.000Z"
+    },
+    {
+      "id": "s-003",
+      "numero_pedido": 103,
+      "cliente_id": "c-003",
+      "tipo": "orcamento",
+      "status": "pronto",
+      "data_agendada": "2026-08-22",
+      "horas_mao_obra": 2,
+      "valor_mao_obra": 160,
+      "valor_bruto": 160,
+      "desconto": 0,
+      "valor": 160,
+      "descricao": "Vistoria técnica para instalação de sistema de controle de acesso biométrico.",
+      "produtos_usados": null,
+      "relatorio": "Orçamento elaborado e aprovado pelo cliente.",
+      "tecnico_id": "u-campo-003",
+      "created_by": "u-atendente-002",
+      "pos_venda": null,
+      "pos_venda_em": null,
+      "concluido_em": "2026-08-22T16:00:00.000Z",
+      "pago_em": null,
+      "created_at": "2026-08-18T15:00:00.000Z"
+    },
+    {
+      "id": "id-64n63d9e",
+      "created_at": "2026-08-25T16:36:24.286Z",
+      "cliente_id": "c-002",
+      "tipo": "manutencao",
+      "data_agendada": "2026-08-25T16:36:00.000Z",
+      "tecnico_id": "u-campo-003",
+      "descricao": null,
+      "created_by": "u-admin-001",
+      "numero_pedido": 1001
+    },
+    {
+      "id": "id-shgj1h6p",
+      "created_at": "2026-08-25T16:37:34.120Z",
+      "cliente_id": "id-m1qaatuf",
+      "tipo": "manutencao",
+      "data_agendada": "2026-08-25T16:40:00.000Z",
+      "tecnico_id": "u-campo-003",
+      "descricao": null,
+      "created_by": "u-admin-001",
+      "numero_pedido": 1002
+    },
+    {
+      "id": "id-fyqabwbt",
+      "created_at": "2026-08-25T16:37:54.826Z",
+      "cliente_id": "id-m1qaatuf",
+      "tipo": "orcamento",
+      "data_agendada": "2026-08-25T16:40:00.000Z",
+      "tecnico_id": "u-campo-003",
+      "descricao": null,
+      "created_by": "u-admin-001",
+      "numero_pedido": 1003
+    },
+    {
+      "id": "id-v7xyxeln",
+      "created_at": "2026-08-25T16:43:02.357Z",
+      "cliente_id": "id-m1qaatuf",
+      "tipo": "orcamento",
+      "status": "agendado",
+      "data_agendada": "2026-08-25T17:00:00.000Z",
+      "duracao_estimada_minutos": 30,
+      "tecnico_id": "u-campo-003",
+      "descricao": null,
+      "created_by": "u-admin-001",
+      "numero_pedido": 1004
+    }
+  ],
+  "servico_produtos": [
+    {
+      "id": "sp-1",
+      "servico_id": "s-001",
+      "estoque_id": "e-001",
+      "produto": "Câmera Bullet IP 4MP Infravermelho 30m Intelbras",
+      "codigo": "CAM-IP4M",
+      "quantidade": 2,
+      "valor_unitario": 320,
+      "created_at": "2026-08-25T16:35:55.897Z"
+    }
+  ],
+  "servico_fotos": [
+    {
+      "id": "id-sc22gn7q",
+      "created_at": "2026-08-25T16:46:58.295Z",
+      "servico_id": "s-003",
+      "storage_path": "s-003/0d89f11b-8c62-4b1b-bc6f-8e2e12fe81a9-IMG_20260418_155307.jpg",
+      "url": "https://ais-dev-xps4safcydqdgwmfq622bt-841629433080.us-east1.run.app/storage/v1/object/sign/servico-fotos/s-003/0d89f11b-8c62-4b1b-bc6f-8e2e12fe81a9-IMG_20260418_155307.jpg?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJidWNrZXQiOiJzZXJ2aWNvLWZvdG9zIiwib2JqZWN0UGF0aCI6InMtMDAzLzBkODlmMTFiLThjNjItNGIxYi1iYzZmLThlMmUxMmZlODFhOS1JTUdfMjAyNjA0MThfMTU1MzA3LmpwZyIsImlhdCI6MTc4NzY3NjQxOCwiZXhwIjoxODE5MjEyNDE4fQ.6ulPFBajcrqh_ly1TiFkCEurrqtEpQi4vtoRVB84JB8"
+    }
+  ],
+  "servico_centrais": [],
+  "financeiro_lancamentos": [
+    {
+      "id": "f-001",
+      "data": "2026-08-20",
+      "tipo": "entrada",
+      "categoria": "servicos",
+      "descricao": "Pagamento OS #98 - Manutenção Alarme Condomínio Solar",
+      "valor": 850,
+      "forma": "pix",
+      "conta": "banco",
+      "contraparte": "Condomínio Solar",
+      "origem": "manual",
+      "observacoes": "Recebido via chave PIX CNPJ",
+      "created_by": "u-admin-001",
+      "created_at": "2026-08-20T16:00:00.000Z",
+      "updated_at": "2026-08-20T16:00:00.000Z"
+    },
+    {
+      "id": "f-002",
+      "data": "2026-08-18",
+      "tipo": "saida",
+      "categoria": "fornecedores",
+      "descricao": "Compra de cabos e conectores - Distribuidora SP",
+      "valor": 450,
+      "forma": "boleto",
+      "conta": "banco",
+      "contraparte": "Distribuidora SP de Segurança",
+      "origem": "manual",
+      "observacoes": "NF-e 4521",
+      "created_by": "u-financeiro-004",
+      "created_at": "2026-08-18T10:00:00.000Z",
+      "updated_at": "2026-08-18T10:00:00.000Z"
+    }
+  ],
+  "boletos": [
+    {
+      "id": "b-001",
+      "fornecedor": "Distribuidora SP de Segurança",
+      "descricao": "Compra de cabos e conectores",
+      "valor": 450,
+      "vencimento": "2026-08-30",
+      "pago": false,
+      "pago_em": null,
+      "origem": "manual",
+      "estoque_entrada_ref": null,
+      "created_by": "u-financeiro-004",
+      "created_at": "2026-08-18T10:00:00.000Z"
+    }
+  ],
+  "notas_fiscais": [
+    {
+      "id": "nf-epuw9vba",
+      "tipo": "compra",
+      "data_emissao": "2026-08-25",
+      "fornecedor": "40a1s0sa40a",
+      "numero": "5505550",
+      "serie": "50550",
+      "chave": null,
+      "valor_total": 50,
+      "origem": "manual",
+      "created_at": "2026-08-25T16:38:31.216Z"
+    }
+  ],
+  "notas_fiscais_itens": [
+    {
+      "id": "nfi-vs5qg2hm",
+      "nota_fiscal_id": "nf-epuw9vba",
+      "codigo": "2525",
+      "produto": "camera",
+      "unidade": "un",
+      "quantidade": 1,
+      "valor_custo": 50,
+      "valor_venda": 68.5,
+      "created_at": "2026-08-25T16:38:31.216Z"
+    }
+  ],
+  "whatsapp_topicos": [
+    {
+      "id": "wt-001",
+      "ordem": 1,
+      "pergunta": "Qual o horário de atendimento e funcionamento?",
+      "resposta": "Nosso atendimento comercial funciona de segunda a sexta, das 08h às 18h, e aos sábados das 08h às 12h. Atendimentos de emergência funcionam 24h para clientes com contrato de manutenção.",
+      "created_at": "2026-08-25T16:35:55.897Z",
+      "updated_at": "2026-08-25T16:35:55.897Z"
+    },
+    {
+      "id": "wt-002",
+      "ordem": 2,
+      "pergunta": "Como solicitar um orçamento de instalação?",
+      "resposta": "Para solicitar um orçamento sem compromisso, basta nos informar o endereço do imóvel e o tipo de sistema desejado (CFTV/Câmeras, Alarme, Cerca Elétrica, Interfonia ou Controle de Acesso). Agendaremos a visita técnica no melhor dia para você!",
+      "created_at": "2026-08-25T16:35:55.897Z",
+      "updated_at": "2026-08-25T16:35:55.897Z"
+    },
+    {
+      "id": "wt-003",
+      "ordem": 3,
+      "pergunta": "Quais as formas de pagamento aceitas?",
+      "resposta": "Aceitamos PIX, transferência bancária, boleto bancário e cartões de crédito em até 12x.",
+      "created_at": "2026-08-25T16:35:55.897Z",
+      "updated_at": "2026-08-25T16:35:55.897Z"
+    }
+  ]
+}

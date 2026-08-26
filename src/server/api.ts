@@ -4,6 +4,7 @@ import fs from "fs";
 import path from "path";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import pg from "pg";
 
 // -------------------------------------------------------------
 // JWT Configuration
@@ -60,7 +61,7 @@ let useRealDb = false;
 
 if (process.env.DATABASE_URL) {
   try {
-    const { Pool } = require("pg");
+    const { Pool } = pg;
     const parsed = new URL(process.env.DATABASE_URL);
     if (process.env.APP_DB_USER) parsed.username = process.env.APP_DB_USER;
     if (process.env.APP_DB_PASSWORD) parsed.password = process.env.APP_DB_PASSWORD;
@@ -1535,11 +1536,80 @@ function requireAuthMiddleware(req: Request, res: Response, next: NextFunction) 
   }
 }
 
-// Use standard middleware handler for storage object routes
-storageRouter.use("/object", (req: Request, res: Response, next: NextFunction) => {
-  const subPath = req.path; // e.g. /sign/meu-bucket/foto.jpg or /meu-bucket/foto.jpg
+// Helper to extract clean binary data from multipart/form-data or raw buffer
+function extractFileBuffer(raw: Buffer, contentTypeHeader = ""): Buffer {
+  if (!raw || raw.length === 0) return Buffer.alloc(0);
 
-  // 1. POST /object/sign/:bucket/... -> Generate a signed URL for a file
+  const headerStr = contentTypeHeader || "";
+  const isMultipart = headerStr.includes("multipart/form-data") || raw.toString("latin1", 0, 80).includes("------");
+
+  if (!isMultipart) {
+    return raw;
+  }
+
+  // Find boundary
+  let boundary = "";
+  const boundaryMatch = headerStr.match(/boundary=([^;]+)/i);
+  if (boundaryMatch) {
+    boundary = boundaryMatch[1].trim().replace(/^"|"$/g, "");
+  }
+
+  // Iterate over parts looking for the file payload
+  let searchPos = 0;
+  while (searchPos < raw.length) {
+    const nextBoundary = boundary
+      ? raw.indexOf(Buffer.from(`--${boundary}`), searchPos)
+      : raw.indexOf(Buffer.from("------"), searchPos);
+    if (nextBoundary === -1) break;
+
+    const partHeaderEnd = raw.indexOf(Buffer.from("\r\n\r\n"), nextBoundary);
+    if (partHeaderEnd === -1) break;
+
+    const partHeaderText = raw.subarray(nextBoundary, partHeaderEnd).toString("latin1");
+    if (partHeaderText.includes("filename=")) {
+      const contentStart = partHeaderEnd + 4;
+      const endBoundary = boundary
+        ? raw.indexOf(Buffer.from(`\r\n--${boundary}`), contentStart)
+        : raw.indexOf(Buffer.from("\r\n------"), contentStart);
+      const contentEnd = endBoundary !== -1 ? endBoundary : raw.length;
+      return raw.subarray(contentStart, contentEnd);
+    }
+
+    searchPos = partHeaderEnd + 4;
+  }
+
+  // Fallback: check if standard JPEG/PNG magic bytes exist
+  const jpegStart = raw.indexOf(Buffer.from([0xff, 0xd8, 0xff]));
+  if (jpegStart >= 0) {
+    const jpegEnd = raw.lastIndexOf(Buffer.from([0xff, 0xd9]));
+    if (jpegEnd > jpegStart) {
+      return raw.subarray(jpegStart, jpegEnd + 2);
+    }
+  }
+
+  const pngStart = raw.indexOf(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+  if (pngStart >= 0) {
+    const pngEnd = raw.lastIndexOf(Buffer.from("IEND\xae\x42\x60\x82"));
+    if (pngEnd > pngStart) {
+      return raw.subarray(pngStart, pngEnd + 8);
+    }
+  }
+
+  return raw;
+}
+
+// Use standard middleware handler for storage object routes
+storageRouter.use((req: Request, res: Response, next: NextFunction) => {
+  // Normalize subPath by stripping any duplicate /storage/v1 or /object prefixes
+  let subPath = req.path;
+  while (subPath.startsWith("/storage/v1")) {
+    subPath = subPath.replace(/^\/storage\/v1/, "");
+  }
+  if (subPath.startsWith("/object")) {
+    subPath = subPath.replace(/^\/object/, "");
+  }
+
+  // 1. POST /sign/:bucket/... -> Generate a signed URL for a file
   if (req.method === "POST" && subPath.startsWith("/sign/")) {
     try {
       const parts = subPath.replace(/^\/sign\//, "").split("/");
@@ -1547,14 +1617,15 @@ storageRouter.use("/object", (req: Request, res: Response, next: NextFunction) =
       const objectPath = parts.slice(1).join("/");
       const expiresIn = req.body?.expiresIn ? Number(req.body.expiresIn) : 31536000;
       const token = jwt.sign({ bucket, objectPath }, SECRET, { expiresIn });
-      const signedURL = `/storage/v1/object/sign/${bucket}/${objectPath}?token=${token}`;
-      return res.status(200).json({ signedURL, signedUrl: signedURL });
+      // Supabase JS SDK Storage prepends its base URL (/storage/v1) to signedURL, so return /object/sign/...
+      const signedURL = `/object/sign/${bucket}/${objectPath}?token=${token}`;
+      return res.status(200).json({ signedURL, signedUrl: `/storage/v1${signedURL}` });
     } catch (err: any) {
       return res.status(400).json({ message: err.message });
     }
   }
 
-  // 2. POST /object/:bucket/... -> Upload a file
+  // 2. POST /:bucket/... -> Upload a file
   if (req.method === "POST" || req.method === "PUT") {
     requireAuthMiddleware(req, res, () => {
       try {
@@ -1565,17 +1636,22 @@ storageRouter.use("/object", (req: Request, res: Response, next: NextFunction) =
         fs.mkdirSync(path.dirname(dest), { recursive: true });
 
         const raw = (req as any).rawBody;
+        let fileBuffer: Buffer;
+        const cType = (req.headers["content-type"] as string) || "";
+
         if (Buffer.isBuffer(raw) && raw.length > 0) {
-          fs.writeFileSync(dest, raw);
+          fileBuffer = extractFileBuffer(raw, cType);
         } else if (Buffer.isBuffer(req.body)) {
-          fs.writeFileSync(dest, req.body);
+          fileBuffer = extractFileBuffer(req.body, cType);
         } else if (typeof req.body === "string") {
-          fs.writeFileSync(dest, req.body);
+          fileBuffer = extractFileBuffer(Buffer.from(req.body), cType);
         } else if (req.body && typeof req.body === "object") {
-          fs.writeFileSync(dest, Buffer.from(JSON.stringify(req.body)));
+          fileBuffer = Buffer.from(JSON.stringify(req.body));
         } else {
-          fs.writeFileSync(dest, Buffer.alloc(0));
+          fileBuffer = Buffer.alloc(0);
         }
+
+        fs.writeFileSync(dest, fileBuffer);
 
         saveMockDataToDisk();
         return res.status(200).json({ Key: `${bucket}/${objectPath}`, id: objectPath, path: objectPath });
@@ -1586,28 +1662,41 @@ storageRouter.use("/object", (req: Request, res: Response, next: NextFunction) =
     return;
   }
 
-  // 3. GET /object/sign/:bucket/... -> Download signed file with token
+  // 3. GET /sign/:bucket/... -> Download signed file with token
   if (req.method === "GET" && subPath.startsWith("/sign/")) {
     try {
-      const token = req.query.token as string;
-      const decoded: any = jwt.verify(token, SECRET);
+      const token = (req.query.token as string) || "";
+      const decoded: any = token ? jwt.verify(token, SECRET) : null;
       const parts = subPath.replace(/^\/sign\//, "").split("/");
       const bucket = parts[0];
       const objectPath = parts.slice(1).join("/");
-      if (decoded.bucket !== bucket || decoded.objectPath !== objectPath) {
+      if (decoded && (decoded.bucket !== bucket || decoded.objectPath !== objectPath)) {
         return res.status(403).json({ message: "Token não corresponde ao arquivo" });
       }
       const full = path.join(STORAGE_DIR, bucket, objectPath);
       if (!fs.existsSync(full)) {
         return res.status(404).json({ message: "Arquivo não encontrado" });
       }
+      const ext = path.extname(objectPath).toLowerCase();
+      const mimeTypes: Record<string, string> = {
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".svg": "image/svg+xml",
+        ".pdf": "application/pdf",
+      };
+      const contentType = mimeTypes[ext] || "image/jpeg";
+      res.setHeader("Content-Type", contentType);
+      res.setHeader("Access-Control-Allow-Origin", "*");
       return res.sendFile(full);
     } catch {
       return res.status(403).json({ message: "Token inválido ou expirado" });
     }
   }
 
-  // 4. GET /object/public/:bucket/... or GET /object/authenticated/:bucket/...
+  // 4. GET /public/:bucket/... or GET /authenticated/:bucket/...
   if (req.method === "GET" && (subPath.startsWith("/public/") || subPath.startsWith("/authenticated/"))) {
     try {
       const parts = subPath.replace(/^\/(public|authenticated)\//, "").split("/");
@@ -1617,13 +1706,25 @@ storageRouter.use("/object", (req: Request, res: Response, next: NextFunction) =
       if (!fs.existsSync(full)) {
         return res.status(404).json({ message: "Arquivo não encontrado" });
       }
+      const ext = path.extname(objectPath).toLowerCase();
+      const mimeTypes: Record<string, string> = {
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".svg": "image/svg+xml",
+        ".pdf": "application/pdf",
+      };
+      res.setHeader("Content-Type", mimeTypes[ext] || "image/jpeg");
+      res.setHeader("Access-Control-Allow-Origin", "*");
       return res.sendFile(full);
     } catch (err: any) {
       return res.status(400).json({ message: err.message });
     }
   }
 
-  // 5. DELETE /object/:bucket -> Remove files
+  // 5. DELETE /:bucket -> Remove files
   if (req.method === "DELETE") {
     try {
       const parts = subPath.replace(/^\//, "").split("/");

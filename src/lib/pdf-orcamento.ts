@@ -6,31 +6,71 @@ import { enderecoCompleto, type ClienteResumo, type Servico, type ServicoProduto
 
 const dataBR = (d: Date) => d.toLocaleDateString("pt-BR");
 
-async function carregarImagemBase64(url: string): Promise<{ data: string; width: number; height: number } | null> {
-  if (!url) return null;
+async function carregarImagemBase64(rawUrl: string): Promise<{ data: string; width: number; height: number } | null> {
+  if (!rawUrl) return null;
+  // Normaliza caminhos duplicados se houver
+  const url = rawUrl.replace(/\/storage\/v1\/storage\/v1\//g, "/storage/v1/");
+
   if (url.startsWith("data:image/")) {
-    return { data: url, width: 800, height: 600 };
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.naturalWidth || 800;
+        canvas.height = img.naturalHeight || 600;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(img, 0, 0);
+          resolve({ data: canvas.toDataURL("image/jpeg", 0.92), width: canvas.width, height: canvas.height });
+        } else {
+          resolve({ data: url, width: canvas.width, height: canvas.height });
+        }
+      };
+      img.onerror = () => resolve({ data: url, width: 800, height: 600 });
+      img.src = url;
+    });
   }
+
+  // 1. Tenta baixar via fetch blob e converter para Data URL JPEG
   try {
-    const res = await fetch(url, { mode: "cors" });
+    const res = await fetch(url, { cache: "no-cache" });
     if (res.ok) {
       const blob = await res.blob();
-      return new Promise((resolve) => {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
-        reader.onloadend = () => {
-          if (typeof reader.result === "string") {
-            resolve({ data: reader.result, width: 800, height: 600 });
-          } else {
-            resolve(null);
-          }
-        };
-        reader.onerror = () => resolve(null);
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
         reader.readAsDataURL(blob);
       });
-    }
-  } catch {}
 
-  // Fallback via Image element
+      const resImg = await new Promise<{ data: string; width: number; height: number } | null>((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          try {
+            const canvas = document.createElement("canvas");
+            canvas.width = img.naturalWidth || img.width || 800;
+            canvas.height = img.naturalHeight || img.height || 600;
+            const ctx = canvas.getContext("2d");
+            if (ctx) {
+              ctx.drawImage(img, 0, 0);
+              const jpegData = canvas.toDataURL("image/jpeg", 0.92);
+              return resolve({ data: jpegData, width: canvas.width, height: canvas.height });
+            }
+          } catch {}
+          resolve({ data: dataUrl, width: img.naturalWidth || 800, height: img.naturalHeight || 600 });
+        };
+        img.onerror = () => {
+          resolve({ data: dataUrl, width: 800, height: 600 });
+        };
+        img.src = dataUrl;
+      });
+      if (resImg) return resImg;
+    }
+  } catch (err) {
+    console.warn("Tentando fallback de carregamento da imagem:", err);
+  }
+
+  // 2. Fallback via Image element com crossOrigin
   return new Promise((resolve) => {
     const img = new Image();
     img.crossOrigin = "anonymous";
@@ -42,7 +82,7 @@ async function carregarImagemBase64(url: string): Promise<{ data: string; width:
         const ctx = canvas.getContext("2d");
         if (!ctx) return resolve(null);
         ctx.drawImage(img, 0, 0);
-        const data = canvas.toDataURL("image/jpeg", 0.85);
+        const data = canvas.toDataURL("image/jpeg", 0.92);
         resolve({ data, width: canvas.width, height: canvas.height });
       } catch {
         resolve(null);
@@ -299,10 +339,28 @@ export async function gerarOrcamentoPdf(
         const posY = fy;
 
         if (imgData) {
+          doc.setFillColor(248, 250, 252);
+          doc.rect(posX, posY, colWidth, colHeight, "F");
           doc.setDrawColor(226, 232, 240);
           doc.setLineWidth(0.3);
           doc.rect(posX, posY, colWidth, colHeight);
-          doc.addImage(imgData.data, "JPEG", posX + 1, posY + 1, colWidth - 2, colHeight - 2, undefined, "FAST");
+
+          // Ajusta tamanho mantendo proporção original
+          const maxW = colWidth - 2;
+          const maxH = colHeight - 2;
+          const imgRatio = (imgData.width || 4) / (imgData.height || 3);
+          let renderW = maxW;
+          let renderH = maxW / imgRatio;
+
+          if (renderH > maxH) {
+            renderH = maxH;
+            renderW = maxH * imgRatio;
+          }
+
+          const offX = posX + 1 + (maxW - renderW) / 2;
+          const offY = posY + 1 + (maxH - renderH) / 2;
+
+          doc.addImage(imgData.data, "JPEG", offX, offY, renderW, renderH, undefined, "FAST");
         } else {
           doc.setFillColor(248, 250, 252);
           doc.rect(posX, posY, colWidth, colHeight, "F");
