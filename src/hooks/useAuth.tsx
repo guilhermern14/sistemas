@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { Session, User } from "@supabase/supabase-js";
 
@@ -35,34 +35,62 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [nome, setNome] = useState("");
   const [loading, setLoading] = useState(true);
 
-  const loadProfile = async (userId: string | undefined) => {
+  const fetchProfileData = useCallback(async (userId: string | undefined) => {
     if (!userId) {
-      setRole(null);
-      setNome("");
-      return;
+      return { role: null, nome: "" };
     }
-    const [{ data: roleRow }, { data: profile }] = await Promise.all([
-      supabase.from("user_roles").select("role").eq("user_id", userId).limit(1).maybeSingle(),
-      supabase.from("profiles").select("nome").eq("id", userId).maybeSingle(),
-    ]);
-    setRole((roleRow?.role as AppRole) ?? null);
-    setNome(profile?.nome ?? "");
-  };
+    try {
+      const [{ data: roleRow }, { data: profile }] = await Promise.all([
+        supabase.from("user_roles").select("role").eq("user_id", userId).limit(1).maybeSingle(),
+        supabase.from("profiles").select("nome").eq("id", userId).maybeSingle(),
+      ]);
+      return {
+        role: ((roleRow?.role as AppRole) ?? null) as AppRole | null,
+        nome: profile?.nome ?? "",
+      };
+    } catch {
+      return { role: null, nome: "" };
+    }
+  }, []);
+
+  const refresh = useCallback(async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      const res = await fetchProfileData(data.session?.user?.id);
+      setSession(data.session);
+      setRole(res.role);
+      setNome(res.nome);
+    } catch (err) {
+      console.error("Erro ao atualizar perfil:", err);
+    }
+  }, [fetchProfileData]);
 
   useEffect(() => {
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    let isMounted = true;
+
+    // O onAuthStateChange do Supabase dispara automaticamente o evento INITIAL_SESSION
+    const { data: sub } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+      if (!isMounted) return;
       setSession(newSession);
-      setTimeout(() => void loadProfile(newSession?.user?.id), 0);
+      if (newSession?.user) {
+        const res = await fetchProfileData(newSession.user.id);
+        if (!isMounted) return;
+        setRole(res.role);
+        setNome(res.nome);
+      } else {
+        setRole(null);
+        setNome("");
+      }
+      if (isMounted) {
+        setLoading(false);
+      }
     });
 
-    void supabase.auth.getSession().then(async ({ data }) => {
-      setSession(data.session);
-      await loadProfile(data.session?.user?.id);
-      setLoading(false);
-    });
-
-    return () => sub.subscription.unsubscribe();
-  }, []);
+    return () => {
+      isMounted = false;
+      sub.subscription.unsubscribe();
+    };
+  }, [fetchProfileData]);
 
   return (
     <AuthContext.Provider
@@ -72,7 +100,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         role,
         nome,
         loading,
-        refresh: () => loadProfile(session?.user?.id),
+        refresh,
       }}
     >
       {children}

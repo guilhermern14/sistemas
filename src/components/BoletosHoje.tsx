@@ -37,10 +37,16 @@ export function BoletosHoje() {
 
   useEffect(() => {
     if (!habilitado || boletos.length === 0) return;
-    const chave = `boletos-aviso-${hojeISO()}`;
-    if (sessionStorage.getItem(chave)) return;
-    sessionStorage.setItem(chave, "1");
-    setAberto(true);
+    try {
+      const chave = `boletos-aviso-${hojeISO()}`;
+      if (typeof window !== "undefined" && window.sessionStorage) {
+        if (window.sessionStorage.getItem(chave)) return;
+        window.sessionStorage.setItem(chave, "1");
+        setAberto(true);
+      }
+    } catch {
+      // Ignora erro se sessionStorage estiver indisponível
+    }
   }, [habilitado, boletos.length]);
 
   if (!habilitado || boletos.length === 0) return null;

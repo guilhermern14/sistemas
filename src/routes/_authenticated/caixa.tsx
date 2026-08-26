@@ -23,12 +23,12 @@ import {
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
-import { ArrowDownCircle, ArrowUpCircle, FileUp, Loader2, Search, Trash2 } from "lucide-react";
+import { ArrowDownCircle, ArrowUpCircle, FileUp, Loader2, Pencil, Search, Trash2, User, UserPlus } from "lucide-react";
 import { ConfirmDeleteDialog } from "@/components/ConfirmDeleteDialog";
 import { formatMoney } from "@/lib/servico";
 import { extrairTextoPdf } from "@/lib/pdf-texto";
 import { extrairLancamentosExtrato } from "@/lib/extrato.functions";
-import { extrairLancamentosDeterministicos } from "@/lib/extrato-parser";
+import { extrairContraparte, extrairLancamentosDeterministicos, ehPalavraRuido } from "@/lib/extrato-parser";
 import type { Lancamento, LancamentoForma, LancamentoTipo } from "@/lib/types";
 
 export const Route = createFileRoute("/_authenticated/caixa")({
@@ -71,6 +71,7 @@ const dataBR = (iso: string) => {
 };
 
 type FormLanc = {
+  id?: string;
   tipo: LancamentoTipo;
   conta: "banco" | "dinheiro";
   descricao: string;
@@ -123,6 +124,31 @@ function CaixaPage() {
     },
   });
 
+  const getContraparteDisplay = (l: Lancamento) => {
+    if (l.contraparte && l.contraparte.trim()) {
+      const c = l.contraparte.trim();
+      if (!ehPalavraRuido(c)) {
+        return c;
+      }
+    }
+    const extraido = extrairContraparte(l.descricao || "");
+    if (extraido && !ehPalavraRuido(extraido)) return extraido;
+
+    // Fallback: se a descrição contiver "pagto de Nome" ou "pagto Nome"
+    const matchPagto = (l.descricao || "").match(/pagto\s+(?:de\s+)?([A-Za-zÀ-Úà-ú\s]{3,30})/i);
+    if (matchPagto && matchPagto[1]) {
+      const possivelNome = matchPagto[1].trim();
+      if (
+        !ehPalavraRuido(possivelNome) &&
+        !/interfone|fatura|boleto|conta|luz|agua|energia|gasolina|combustivel|equipamento|material|cftv|camera|alarme/i.test(possivelNome)
+      ) {
+        return possivelNome;
+      }
+    }
+
+    return null;
+  };
+
   const categorias = useMemo(
     () => [...new Set(lancamentos.map((l) => l.categoria).filter(Boolean))].sort(),
     [lancamentos],
@@ -137,7 +163,8 @@ function CaixaPage() {
         if (formaFiltro !== "todas" && l.forma !== formaFiltro) return false;
         const termo = busca.trim().toLowerCase();
         if (!termo) return true;
-        return `${l.descricao} ${l.contraparte ?? ""} ${l.categoria} ${formaLabels[l.forma] ?? l.forma}`
+        const contraparteCalc = getContraparteDisplay(l) ?? "";
+        return `${l.descricao} ${l.contraparte ?? ""} ${contraparteCalc} ${l.categoria} ${formaLabels[l.forma] ?? l.forma}`
           .toLowerCase()
           .includes(termo);
       }),
@@ -165,26 +192,57 @@ function CaixaPage() {
     soma(lancamentos, (l) => l.conta === "banco" && isEntrada(l.tipo)) -
     soma(lancamentos, (l) => l.conta === "banco" && isSaida(l.tipo));
 
+  const abrirEdicao = (l: Lancamento) => {
+    const cpDisplay = getContraparteDisplay(l) || "";
+    setForm({
+      id: l.id,
+      tipo: l.tipo,
+      conta: (l.conta as "banco" | "dinheiro") || "banco",
+      descricao: l.descricao || "",
+      contraparte: cpDisplay,
+      categoria: l.categoria || "outros",
+      forma: l.forma,
+      valor: String(l.valor),
+      data: l.data,
+      observacoes: l.observacoes || "",
+    });
+  };
+
   const salvar = useMutation({
     mutationFn: async (f: FormLanc) => {
       const { data: userData } = await supabase.auth.getUser();
-      const { error } = await supabase.from("financeiro_lancamentos").insert({
+      const payload = {
         tipo: f.tipo,
         conta: f.conta,
         descricao: f.descricao,
-        contraparte: f.contraparte || null,
+        contraparte: f.contraparte?.trim() || null,
         categoria: f.categoria || "outros",
         forma: f.forma,
         valor: Number(f.valor || 0),
         data: f.data,
-        origem: "manual",
         observacoes: f.observacoes || null,
-        created_by: userData.user?.id ?? null,
-      } as never);
-      if (error) throw error;
+      };
+
+      if (f.id) {
+        const { error } = await supabase
+          .from("financeiro_lancamentos")
+          .update({
+            ...payload,
+            updated_at: new Date().toISOString(),
+          } as never)
+          .eq("id", f.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("financeiro_lancamentos").insert({
+          ...payload,
+          origem: "manual",
+          created_by: userData.user?.id ?? null,
+        } as never);
+        if (error) throw error;
+      }
     },
     onSuccess: () => {
-      toast.success("Lançamento salvo");
+      toast.success(form?.id ? "Lançamento atualizado" : "Lançamento salvo");
       setForm(null);
       void qc.invalidateQueries({ queryKey: ["financeiro-lancamentos"] });
     },
@@ -208,25 +266,33 @@ function CaixaPage() {
     setLendo(true);
     try {
       const texto = await extrairTextoPdf(file);
-      if (texto.trim().length < 20) {
+      if (!texto || texto.trim().length < 15) {
         toast.error("Não foi possível ler o texto deste PDF.");
         return;
       }
 
+      // 1. Extração determinística rápida e completa
+      const itensDeterministicos = extrairLancamentosDeterministicos(texto);
+
       let itens: any[] = [];
       try {
-        itens = await extrair({ data: { texto } });
+        const itensIa = await extrair({ data: { texto } });
+        if (Array.isArray(itensIa) && itensIa.length >= itensDeterministicos.length) {
+          itens = itensIa;
+        } else {
+          itens = itensDeterministicos;
+        }
       } catch (errServer) {
-        console.warn("Falha no endpoint do servidor, utilizando parser local:", errServer);
-        itens = extrairLancamentosDeterministicos(texto);
+        console.warn("Falha no endpoint do servidor, utilizando parser determinístico:", errServer);
+        itens = itensDeterministicos;
       }
 
       if (!itens || itens.length === 0) {
-        itens = extrairLancamentosDeterministicos(texto);
+        itens = itensDeterministicos;
       }
 
-      if (!itens.length) {
-        toast.error("Nenhum lançamento encontrado no extrato.");
+      if (!itens || itens.length === 0) {
+        toast.error("Nenhum lançamento financeiro encontrado no extrato.");
         return;
       }
 
@@ -237,52 +303,85 @@ function CaixaPage() {
           .toLowerCase()
           .replace(/[^a-z0-9]+/g, " ")
           .trim();
+
       const chave = (l: { data: string; tipo: string; valor: number; descricao?: string | null | undefined; contraparte?: string | null | undefined }) =>
         [l.data, l.tipo, Math.abs(Number(l.valor)).toFixed(2), norm(`${l.descricao ?? ""} ${l.contraparte ?? ""}`)].join("|");
 
-      const datas = itens.map((i) => i.data).sort();
+      const datasOrdenadas = itens.map((i) => i.data).filter(Boolean).sort();
+      const menorData = datasOrdenadas[0];
+      const maiorData = datasOrdenadas[datasOrdenadas.length - 1];
+
       const { data: existentes, error: erroExistentes } = await supabase
         .from("financeiro_lancamentos")
         .select("data, tipo, valor, descricao, contraparte")
-        .gte("data", datas[0])
-        .lte("data", datas[datas.length - 1]);
+        .gte("data", menorData)
+        .lte("data", maiorData);
+
       if (erroExistentes) throw erroExistentes;
 
-      const vistos = new Set((existentes ?? []).map((l) => chave(l as never)));
-      const novos = itens.filter((i) => {
-        const k = chave(i);
-        if (vistos.has(k)) return false;
-        vistos.add(k);
-        return true;
-      });
+      // Deduplicação baseada em contagem de ocorrências (permite múltiplos lançamentos legítimos de mesmo valor no mesmo dia)
+      const contagemExistentes = new Map<string, number>();
+      for (const l of existentes ?? []) {
+        const k = chave(l as never);
+        contagemExistentes.set(k, (contagemExistentes.get(k) || 0) + 1);
+      }
 
-      const duplicados = itens.length - novos.length;
+      const novos: typeof itens = [];
+      let duplicados = 0;
+
+      for (const item of itens) {
+        const k = chave(item);
+        const qtdExistente = contagemExistentes.get(k) || 0;
+        if (qtdExistente > 0) {
+          contagemExistentes.set(k, qtdExistente - 1);
+          duplicados++;
+        } else {
+          novos.push(item);
+        }
+      }
+
       if (!novos.length) {
-        toast.info("Nenhum lançamento novo: todos já estavam cadastrados.");
+        toast.info("Todos os lançamentos do extrato já estavam cadastrados no sistema.");
         return;
       }
 
       const { data: userData } = await supabase.auth.getUser();
-      const { error } = await supabase.from("financeiro_lancamentos").insert(
-        novos.map((i) => ({
-          tipo: i.tipo,
-          conta: "banco",
-          descricao: i.descricao,
-          contraparte: i.contraparte ?? null,
-          categoria: i.categoria || "outros",
-          forma: formasLista.includes(i.forma) ? i.forma : "outro",
-          valor: Math.abs(Number(i.valor)),
-          data: i.data,
-          origem: "extrato",
-          created_by: userData.user?.id ?? null,
-        })) as never,
-      );
-      if (error) throw error;
+
+      // Inserção em lotes (evita sobrecarga ou timeout de requisição em extratos grandes)
+      const BATCH_SIZE = 50;
+      for (let i = 0; i < novos.length; i += BATCH_SIZE) {
+        const batch = novos.slice(i, i + BATCH_SIZE);
+        const { error } = await supabase.from("financeiro_lancamentos").insert(
+          batch.map((item) => {
+            const cp = item.contraparte && !ehPalavraRuido(item.contraparte) ? item.contraparte.trim() : null;
+            return {
+              tipo: item.tipo,
+              conta: "banco",
+              descricao: item.descricao,
+              contraparte: cp,
+              categoria: item.categoria || "outros",
+              forma: formasLista.includes(item.forma) ? item.forma : "outro",
+              valor: Math.abs(Number(item.valor)),
+              data: item.data,
+              origem: "extrato",
+              created_by: userData.user?.id ?? null,
+            };
+          }) as never,
+        );
+        if (error) throw error;
+      }
+
+      // Se a data do extrato estiver fora do filtro atual, expande o período para visualização imediata
+      if (menorData < de) setDe(menorData);
+      if (maiorData > ate) setAte(maiorData);
+
+      const qtdEntradas = novos.filter((i) => i.tipo === "entrada").length;
+      const qtdSaidas = novos.filter((i) => i.tipo === "saida").length;
+
       toast.success(
-        `${novos.length} lançamentos importados${duplicados ? ` · ${duplicados} duplicados ignorados` : ""}`,
+        `${novos.length} lançamentos importados com sucesso (${qtdEntradas} entradas, ${qtdSaidas} saídas)${duplicados ? ` · ${duplicados} já existentes ignorados` : ""}`,
       );
       void qc.invalidateQueries({ queryKey: ["financeiro-lancamentos"] });
-
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Falha ao importar o extrato");
     } finally {
@@ -436,7 +535,7 @@ function CaixaPage() {
               <TableHead>Forma</TableHead>
               <TableHead>Conta</TableHead>
               <TableHead className="text-right">Valor</TableHead>
-              <TableHead />
+              <TableHead className="text-right">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -445,31 +544,63 @@ function CaixaPage() {
             ) : filtrados.length === 0 ? (
               <TableRow><TableCell colSpan={8} className="text-muted-foreground">Nenhum lançamento no período.</TableCell></TableRow>
             ) : (
-              filtrados.map((l) => (
-                <TableRow key={l.id}>
-                  <TableCell className="whitespace-nowrap">{dataBR(l.data)}</TableCell>
-                  <TableCell className="font-medium">{l.descricao || "—"}</TableCell>
-                  <TableCell>{l.contraparte ?? "—"}</TableCell>
-                  <TableCell className="capitalize">{l.categoria}</TableCell>
-                  <TableCell>{formaLabels[l.forma] ?? l.forma}</TableCell>
-                  <TableCell className="capitalize">{l.conta}</TableCell>
-                  <TableCell
-                    className={`text-right font-semibold ${l.tipo === "entrada" ? "text-success-foreground" : "text-destructive"}`}
-                  >
-                    {l.tipo === "entrada" ? "+" : "-"} {formatMoney(Number(l.valor))}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="text-muted-foreground hover:text-destructive"
-                      onClick={() => setItemParaExcluir(l.id)}
+              filtrados.map((l) => {
+                const contraparteCalc = getContraparteDisplay(l);
+                return (
+                  <TableRow key={l.id}>
+                    <TableCell className="whitespace-nowrap">{dataBR(l.data)}</TableCell>
+                    <TableCell className="font-medium">{l.descricao || "—"}</TableCell>
+                    <TableCell>
+                      {contraparteCalc ? (
+                        <span className="font-medium text-foreground inline-flex items-center gap-1.5">
+                          <User className="h-3.5 w-3.5 text-primary shrink-0" />
+                          <span>{contraparteCalc}</span>
+                        </span>
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs text-muted-foreground hover:text-primary px-2 font-normal gap-1"
+                          onClick={() => abrirEdicao(l)}
+                        >
+                          <UserPlus className="h-3 w-3" />
+                          <span>Informar nome</span>
+                        </Button>
+                      )}
+                    </TableCell>
+                    <TableCell className="capitalize">{l.categoria}</TableCell>
+                    <TableCell>{formaLabels[l.forma] ?? l.forma}</TableCell>
+                    <TableCell className="capitalize">{l.conta}</TableCell>
+                    <TableCell
+                      className={`text-right font-semibold ${l.tipo === "entrada" ? "text-success-foreground" : "text-destructive"}`}
                     >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))
+                      {l.tipo === "entrada" ? "+" : "-"} {formatMoney(Number(l.valor))}
+                    </TableCell>
+                    <TableCell className="text-right whitespace-nowrap">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="text-muted-foreground hover:text-foreground h-8 w-8"
+                          title="Editar lançamento"
+                          onClick={() => abrirEdicao(l)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="text-muted-foreground hover:text-destructive h-8 w-8"
+                          title="Excluir lançamento"
+                          onClick={() => setItemParaExcluir(l.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>
@@ -491,17 +622,53 @@ function CaixaPage() {
       <Dialog open={!!form} onOpenChange={(o) => !o && setForm(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{form?.tipo === "entrada" ? "Nova entrada" : "Nova saída"}</DialogTitle>
+            <DialogTitle>
+              {form?.id
+                ? "Editar lançamento"
+                : form?.tipo === "entrada"
+                  ? "Nova entrada"
+                  : "Nova saída"}
+            </DialogTitle>
           </DialogHeader>
           {form && (
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-2 sm:col-span-2">
                 <Label>Descrição / o que foi pago</Label>
-                <Input value={form.descricao} onChange={(e) => setForm({ ...form, descricao: e.target.value })} />
+                <Input
+                  placeholder="Ex: Pagamento OS #98 - Manutenção CFTV"
+                  value={form.descricao}
+                  onChange={(e) => {
+                    const novaDesc = e.target.value;
+                    const sugestao = !form.contraparte ? extrairContraparte(novaDesc) : null;
+                    setForm({
+                      ...form,
+                      descricao: novaDesc,
+                      ...(sugestao && !form.contraparte ? { contraparte: sugestao } : {}),
+                    });
+                  }}
+                />
               </div>
               <div className="space-y-2">
-                <Label>Quem pagou / recebeu</Label>
-                <Input value={form.contraparte} onChange={(e) => setForm({ ...form, contraparte: e.target.value })} />
+                <div className="flex items-center justify-between">
+                  <Label>Quem pagou / recebeu</Label>
+                  {!form.contraparte && form.descricao && extrairContraparte(form.descricao) && (
+                    <button
+                      type="button"
+                      className="text-[11px] text-primary hover:underline font-medium"
+                      onClick={() => {
+                        const sug = extrairContraparte(form.descricao);
+                        if (sug) setForm({ ...form, contraparte: sug });
+                      }}
+                    >
+                      Preencher "{extrairContraparte(form.descricao)}"
+                    </button>
+                  )}
+                </div>
+                <Input
+                  placeholder="Ex: Nome do cliente, fornecedor ou pessoa"
+                  value={form.contraparte}
+                  onChange={(e) => setForm({ ...form, contraparte: e.target.value })}
+                />
               </div>
               <div className="space-y-2">
                 <Label>Valor (R$)</Label>
@@ -560,7 +727,7 @@ function CaixaPage() {
               onClick={() => form && salvar.mutate(form)}
               disabled={!form || !form.valor || Number(form.valor) <= 0 || salvar.isPending}
             >
-              Salvar
+              {salvar.isPending ? "Salvando..." : "Salvar"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -568,3 +735,4 @@ function CaixaPage() {
     </div>
   );
 }
+

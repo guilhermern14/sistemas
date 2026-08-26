@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { extrairLancamentosDeterministicos } from "./extrato-parser";
+import { extrairLancamentosDeterministicos, ehPalavraRuido } from "./extrato-parser";
 
 const schema = z.object({ texto: z.string().min(10).max(120000) });
 
@@ -11,8 +11,8 @@ Formato obrigatório do JSON:
   "lancamentos": [
     {
       "data": "YYYY-MM-DD",
-      "descricao": "Descrição limpa da transação",
-      "contraparte": "Nome de quem pagou ou recebeu (ou null se não houver)",
+      "descricao": "Descrição da linha do extrato bancário (ex: 'COMP VISA ELECTRO', 'PIX RECEB.OUTRA IF', 'VENCIMENTO CHEQUE ESPECIAL EMPRESARIAL:')",
+      "contraparte": "Nome real da pessoa física ou empresa (ex: 'MAYSON ROGERIO DE SOUZA', 'ROZENEIDE GOMES FERREIRA') ou null se for tarifa, cartão ou operação geral",
       "valor": 123.45,
       "tipo": "entrada" | "saida",
       "forma": "pix" | "dinheiro" | "boleto" | "cartao_credito" | "cartao_debito" | "ted" | "debito_automatico" | "tarifa" | "outro",
@@ -20,11 +20,16 @@ Formato obrigatório do JSON:
     }
   ]
 }
-Regras:
-1. O valor numérico deve ser sempre positivo.
-2. tipo: "entrada" para créditos/recebimentos/PIX recebidos, "saida" para débitos/pagamentos/tarifas.
-3. Ignore completamente linhas de saldo anterior, saldo do dia, saldo final, limites de cheque e cabeçalhos do banco.
-4. Normalize as datas para o formato ISO YYYY-MM-DD.`;
+Regras Críticas:
+1. descricao: Mantenha a descrição bancária da transação exatamente como descrita na linha do banco (ex: 'COMP VISA ELECTRO', 'PIX RECEB.OUTRA IF', 'VENCIMENTO CHEQUE ESPECIAL EMPRESARIAL:'). Se houver observação/mensagem do cliente no PIX (ex: 'pagto Edivaldo interfone'), inclua ao lado como 'PIX RECEB.OUTRA IF · pagto Edivaldo interfone'.
+2. contraparte (QUEM PAGOU / RECEBEU):
+   - Deve ser EXCLUSIVAMENTE o NOME real da pessoa ou empresa (ex: 'MAYSON ROGERIO DE SOUZA', 'ROZENEIDE GOMES FERREIRA').
+   - NUNCA coloque termos bancários ou operacionais na contraparte como 'RECEB.OUTRA IF', 'TRANSF.OUTRA IF', 'COMP VISA ELECTRO', 'CHEQUE ESPECIAL', 'VENCIMENTO CHEQUE ESPECIAL', 'TARIFA', 'PIX RECEBIDO', etc. Se não houver pessoa física ou jurídica identificada, defina contraparte como null.
+   - Em blocos multilinhas de PIX/transferência, o nome da pessoa/empresa geralmente aparece na 2ª ou 3ª linha do bloco (ex: '55 349 398 MAYSON ROGERIO DE SOUZA' -> contraparte: 'MAYSON ROGERIO DE SOUZA'). Remova raízes e dígitos de CNPJ/CPF antes do nome.
+3. tipo: "entrada" para créditos/recebimentos (+ ou C), "saida" para débitos/pagamentos (- ou D).
+4. O valor numérico deve ser sempre positivo.
+5. Ignore completamente linhas de saldo anterior, saldo do dia, saldo final, limites de cheque e cabeçalhos do banco.
+6. Normalize as datas para o formato ISO YYYY-MM-DD.`;
 
 const itemSchema = z.object({
   data: z.string(),
@@ -51,6 +56,11 @@ export const extrairLancamentosExtrato = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const texto = data.texto;
 
+    const sanitizarItem = (d: z.infer<typeof itemSchema>) => ({
+      ...d,
+      contraparte: d.contraparte && !ehPalavraRuido(d.contraparte) ? d.contraparte.trim() : null,
+    });
+
     // 1. Tentar processar via Gemini API se a chave estiver presente
     const geminiKey = process.env.GEMINI_API_KEY;
     if (geminiKey) {
@@ -75,7 +85,7 @@ export const extrairLancamentosExtrato = createServerFn({ method: "POST" })
             const validados = parsed.lancamentos
               .map((l) => itemSchema.safeParse(l))
               .filter((r) => r.success)
-              .map((r) => r.data);
+              .map((r) => sanitizarItem(r.data));
             if (validados.length > 0) {
               return validados;
             }
@@ -111,7 +121,7 @@ export const extrairLancamentosExtrato = createServerFn({ method: "POST" })
             const validados = parsed.lancamentos
               .map((l) => itemSchema.safeParse(l))
               .filter((r) => r.success)
-              .map((r) => r.data);
+              .map((r) => sanitizarItem(r.data));
             if (validados.length > 0) {
               return validados;
             }
@@ -124,5 +134,5 @@ export const extrairLancamentosExtrato = createServerFn({ method: "POST" })
 
     // 3. Fallback determinístico offline/automático: extrai lançamentos com regras bancárias brasileiras
     const extraidos = extrairLancamentosDeterministicos(texto);
-    return extraidos.map((l) => itemSchema.parse(l));
+    return extraidos.map((l) => sanitizarItem(itemSchema.parse(l)));
   });
