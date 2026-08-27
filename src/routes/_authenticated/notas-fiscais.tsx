@@ -270,10 +270,11 @@ function NotasFiscaisPage() {
     try {
       const lida = parseNfe(await file.text());
       if (!lida.numero && !lida.chave) {
-        toast.error("O XML não contém número ou chave da NF-e.");
+        toast.error("O XML não contém número ou chave da nota fiscal.");
         return;
       }
       setNotaXml(lida);
+      setTipoImportacao(lida.tipo_sugerido || "compra");
       setBoletosXml(
         lida.boletos.map((b, idx) => ({
           numero: b.numero || String(idx + 1),
@@ -475,8 +476,19 @@ function NotasFiscaisPage() {
           <DialogHeader><DialogTitle>Conferir nota antes de importar</DialogTitle></DialogHeader>
           {notaXml && (
             <div className="space-y-5">
-              <div className="grid gap-3 sm:grid-cols-4 text-sm bg-muted/40 p-3 rounded-lg">
-                <div><span className="text-muted-foreground block text-xs">Tipo:</span> <span className="font-medium">{tipoLabel(tipoImportacao)}</span></div>
+              <div className="grid gap-3 sm:grid-cols-4 text-sm bg-muted/40 p-3.5 rounded-lg items-center">
+                <div>
+                  <span className="text-muted-foreground block text-xs mb-1 font-medium">Finalidade:</span>
+                  <Select value={tipoImportacao} onValueChange={(v) => setTipoImportacao(v as NotaFiscalTipo)}>
+                    <SelectTrigger className="h-8 text-xs font-semibold bg-background">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="compra">Nota de compra</SelectItem>
+                      <SelectItem value="emitida">Nota emitida (cliente)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div><span className="text-muted-foreground block text-xs">Número / Série:</span> <span className="font-medium">{notaXml.numero || "—"}{notaXml.serie ? ` / ${notaXml.serie}` : ""}</span></div>
                 <div><span className="text-muted-foreground block text-xs">Data de emissão:</span> <span className="font-medium">{notaXml.data_emissao.split("-").reverse().join("/")}</span></div>
                 <div><span className="text-muted-foreground block text-xs">Valor Total:</span> <span className="font-semibold text-primary">{formatMoney(notaXml.valor_total)}</span></div>

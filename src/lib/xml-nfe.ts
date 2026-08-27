@@ -26,39 +26,45 @@ export type NotaXml = {
   serie: string;
   data_emissao: string;
   valor_total: number;
+  tipo_sugerido?: "compra" | "emitida";
 };
 
-function texto(el: Element | Document | null | undefined, tag: string) {
+function texto(el: Element | Document | null | undefined, tag: string): string {
   if (!el) return "";
-  // Try getElementsByTagName
+  // Direct tag search
   const nodes = el.getElementsByTagName(tag);
   if (nodes && nodes.length > 0 && nodes[0]?.textContent) {
-    return nodes[0].textContent.trim();
+    const val = nodes[0].textContent.trim();
+    if (val) return val;
   }
-  // Try case-insensitive or namespaced tag search
+  // Case-insensitive / namespace tag search
   const allEls = el.getElementsByTagName("*");
   const targetLower = tag.toLowerCase();
   for (let i = 0; i < allEls.length; i++) {
     const node = allEls[i];
     const local = (node.localName || node.nodeName || "").split(":").pop()?.toLowerCase();
     if (local === targetLower && node.textContent) {
-      return node.textContent.trim();
+      const val = node.textContent.trim();
+      if (val) return val;
     }
   }
   return "";
 }
 
-function numero(valor: string | number | null | undefined) {
-  if (typeof valor === "number") return valor;
-  return Number((String(valor || "0")).replace(/\s/g, "").replace(",", ".")) || 0;
+function numero(valor: string | number | null | undefined): number {
+  if (typeof valor === "number") return isNaN(valor) ? 0 : valor;
+  if (!valor) return 0;
+  const limpo = String(valor).replace(/\s/g, "").replace(",", ".");
+  const n = parseFloat(limpo);
+  return isNaN(n) ? 0 : n;
 }
 
 function formatarDataIso(raw: string): string {
   if (!raw) return new Date().toISOString().slice(0, 10);
   const limpa = raw.trim();
-  // YYYY-MM-DD
-  const matchIso = limpa.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (matchIso) return `${matchIso[1]}-${matchIso[2]}-${matchIso[3]}`;
+  // ISO com timestamp: 2026-01-08T10:30:05...
+  const matchIsoTime = limpa.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (matchIsoTime) return `${matchIsoTime[1]}-${matchIsoTime[2]}-${matchIsoTime[3]}`;
   // YYYYMMDD
   const matchCompact = limpa.match(/^(\d{4})(\d{2})(\d{2})/);
   if (matchCompact) return `${matchCompact[1]}-${matchCompact[2]}-${matchCompact[3]}`;
@@ -68,35 +74,153 @@ function formatarDataIso(raw: string): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function dataNfe(doc: Document) {
-  const raw =
-    texto(doc.getElementsByTagName("ide")[0], "dhEmi") ||
-    texto(doc.getElementsByTagName("ide")[0], "dEmi") ||
-    texto(doc, "dhEmi") ||
-    texto(doc, "dEmi");
-  return formatarDataIso(raw);
-}
-
-/** Lê uma NF-e (XML) e devolve os produtos com custo e preço de venda (+37%). */
+/** Lê uma NF-e ou NFS-e (XML) e devolve os produtos/serviços com custo e preço de venda. */
 export function parseNfeXml(conteudo: string): ItemXml[] {
   return parseNfe(conteudo).itens;
 }
 
-/** Lê uma NF-e: fornecedor, produtos, chave, número, data, total e duplicatas/boletos. */
+/** Lê uma NF-e (produtos) ou NFS-e (serviços): fornecedor/cliente, itens, chave, número, data, total e duplicatas/boletos. */
 export function parseNfe(conteudo: string): NotaXml {
   const doc = new DOMParser().parseFromString(conteudo, "application/xml");
   if (doc.getElementsByTagName("parsererror").length > 0) {
     throw new Error("Arquivo XML inválido ou corrompido");
   }
 
-  // Busca tags det (itens)
+  // 1. Identificar Número da Nota
+  const ide = doc.getElementsByTagName("ide")[0];
+  const numeroNf =
+    texto(doc, "nNFSe") ||
+    texto(ide, "nNF") ||
+    texto(doc, "nNF") ||
+    texto(doc, "Numero") ||
+    texto(doc, "NumeroNfse") ||
+    texto(doc, "nDPS") ||
+    texto(doc, "nDFSe") ||
+    texto(doc, "NumeroRps") ||
+    "";
+
+  // 2. Identificar Série
+  const serieNf =
+    texto(ide, "serie") ||
+    texto(doc, "serie") ||
+    texto(doc, "Serie") ||
+    texto(doc, "SerieRps") ||
+    (texto(doc, "nNFSe") ? "NFS-e" : "");
+
+  // 3. Identificar Chave / Identificador
+  const infNfe = doc.getElementsByTagName("infNFe")[0];
+  const infNfse = doc.getElementsByTagName("infNFSe")[0] || doc.getElementsByTagName("InfNfse")[0];
+  const infDps = doc.getElementsByTagName("infDPS")[0] || doc.getElementsByTagName("InfDeclaracaoPrestacaoServico")[0];
+
+  const idAttrNfe = infNfe?.getAttribute("Id") ?? "";
+  const idAttrNfse = infNfse?.getAttribute("Id") ?? "";
+  const idAttrDps = infDps?.getAttribute("Id") ?? "";
+
+  const chave =
+    idAttrNfe.replace(/^NFe/i, "").trim() ||
+    idAttrNfse ||
+    idAttrDps ||
+    texto(doc, "chNFe") ||
+    texto(doc, "CodigoVerificacao") ||
+    texto(doc, "nDFSe") ||
+    texto(doc, "Id") ||
+    numeroNf;
+
+  // 4. Data de Emissão
+  const rawData =
+    texto(ide, "dhEmi") ||
+    texto(ide, "dEmi") ||
+    texto(doc, "dhProc") ||
+    texto(doc, "dhEmi") ||
+    texto(doc, "DataEmissao") ||
+    texto(doc, "dCompet") ||
+    texto(doc, "dEmi") ||
+    texto(doc, "DataEmissaoRps") ||
+    "";
+  const dataEmissao = formatarDataIso(rawData);
+
+  // 5. Valor Total
+  const totalIcms = doc.getElementsByTagName("ICMSTot")[0];
+  const valoresNfse = doc.getElementsByTagName("valores")[0] || doc.getElementsByTagName("Valores")[0];
+  const vServPrest = doc.getElementsByTagName("vServPrest")[0];
+
+  const rawValor =
+    texto(totalIcms, "vNF") ||
+    texto(valoresNfse, "vLiq") ||
+    texto(vServPrest, "vServ") ||
+    texto(valoresNfse, "vServ") ||
+    texto(doc, "ValorServicos") ||
+    texto(doc, "vLiq") ||
+    texto(doc, "vServ") ||
+    texto(doc, "vNF") ||
+    texto(doc, "ValorLiquidoNfse") ||
+    texto(doc, "vOrig") ||
+    "0";
+  const valorTotal = numero(rawValor);
+
+  // 6. Emitente (Prestador / Fornecedor)
+  const emit = doc.getElementsByTagName("emit")[0];
+  const prest = doc.getElementsByTagName("prest")[0];
+  const prestadorServico = doc.getElementsByTagName("PrestadorServico")[0] || doc.getElementsByTagName("Prestador")[0];
+
+  const emitente =
+    texto(emit, "xNome") ||
+    texto(prestadorServico, "RazaoSocial") ||
+    texto(prestadorServico, "NomeFantasia") ||
+    texto(emit, "xFant") ||
+    texto(emit, "CNPJ") ||
+    texto(prest, "CNPJ") ||
+    texto(emit, "CPF") ||
+    "Emitente";
+
+  // 7. Destinatário (Tomador / Cliente)
+  const dest = doc.getElementsByTagName("dest")[0];
+  const toma = doc.getElementsByTagName("toma")[0];
+  const tomadorServico = doc.getElementsByTagName("TomadorServico")[0] || doc.getElementsByTagName("Tomador")[0];
+
+  const destinatario =
+    texto(toma, "xNome") ||
+    texto(dest, "xNome") ||
+    texto(tomadorServico, "RazaoSocial") ||
+    texto(tomadorServico, "NomeFantasia") ||
+    texto(toma, "xFant") ||
+    texto(dest, "xFant") ||
+    texto(toma, "CNPJ") ||
+    texto(dest, "CNPJ") ||
+    texto(toma, "CPF") ||
+    texto(dest, "CPF") ||
+    "Destinatário";
+
+  const ehMinhaEmpresa = (textoOuCnpj: string) => {
+    if (!textoOuCnpj) return false;
+    const limpo = textoOuCnpj.toLowerCase().replace(/[^a-z0-9]/g, "");
+    return (
+      limpo.includes("31649330") ||
+      limpo.includes("guilhermerenan") ||
+      limpo.includes("nascimentosistema") ||
+      limpo.includes("07427684907")
+    );
+  };
+
+  const emitenteCnpj = texto(emit, "CNPJ") || texto(prest, "CNPJ");
+  const emitenteSouEu =
+    ehMinhaEmpresa(emitente) ||
+    ehMinhaEmpresa(emitenteCnpj) ||
+    ehMinhaEmpresa(texto(prestadorServico, "RazaoSocial"));
+
+  const isNfse = Boolean(texto(doc, "nNFSe") || texto(doc, "infNFSe") || texto(doc, "infDPS"));
+  const tipoSugerido: "compra" | "emitida" = emitenteSouEu || isNfse ? "emitida" : "compra";
+  const fornecedor = tipoSugerido === "emitida" ? destinatario : emitente;
+
+  // 8. Itens / Produtos / Serviços
+  const itens: ItemXml[] = [];
+
+  // 8.1 Verifica se é NF-e com tags <det><prod>
   let dets = Array.from(doc.getElementsByTagName("det"));
   if (dets.length === 0) {
     const all = Array.from(doc.getElementsByTagName("*"));
-    dets = all.filter((el) => (el.localName || el.nodeName).toLowerCase().endsWith("det"));
+    dets = all.filter((el) => (el.localName || el.nodeName).toLowerCase().endsWith("det") && el.getElementsByTagName("prod").length > 0);
   }
-
-  const itens: ItemXml[] = [];
 
   for (const det of dets) {
     const prod = det.getElementsByTagName("prod")[0] || det;
@@ -116,39 +240,46 @@ export function parseNfe(conteudo: string): NotaXml {
     });
   }
 
-  const emit = doc.getElementsByTagName("emit")[0];
-  const emitente =
-    texto(emit, "xNome") ||
-    texto(emit, "xFant") ||
-    texto(emit, "CNPJ") ||
-    texto(emit, "CPF") ||
-    "Fornecedor";
+  // 8.2 Se não tiver tags <det><prod>, extrai da NFS-e (<serv>, <cServ>, <xDescServ>, <Discriminacao>, etc.)
+  if (itens.length === 0) {
+    const serv = doc.getElementsByTagName("serv")[0] || doc.getElementsByTagName("Servico")[0] || doc;
+    const descServico =
+      texto(serv, "xDescServ") ||
+      texto(doc, "xDescServ") ||
+      texto(doc, "Discriminacao") ||
+      texto(doc, "DiscriminacaoServico") ||
+      texto(doc, "xTribNac") ||
+      texto(doc, "xNBS") ||
+      "Prestação de Serviços";
 
-  const dest = doc.getElementsByTagName("dest")[0];
-  const destinatario =
-    texto(dest, "xNome") ||
-    texto(dest, "xFant") ||
-    texto(dest, "CNPJ") ||
-    texto(dest, "CPF") ||
-    "Cliente";
+    const codServico =
+      texto(serv, "cTribNac") ||
+      texto(doc, "cTribNac") ||
+      texto(serv, "cNBS") ||
+      texto(doc, "cNBS") ||
+      texto(doc, "ItemListaServico") ||
+      texto(doc, "cServ") ||
+      "SRV-01";
 
-  const fornecedor = emitente;
-  const ide = doc.getElementsByTagName("ide")[0];
-  const total = doc.getElementsByTagName("ICMSTot")[0] || doc.getElementsByTagName("vNF")[0]?.parentElement;
+    // Se houver múltiplas linhas de serviço descritas com detalhes
+    const linhasServico = descServico
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
 
-  const infNfe = doc.getElementsByTagName("infNFe")[0];
-  const idAttr = infNfe?.getAttribute("Id") ?? "";
-  const chave =
-    idAttr.replace(/^NFe/i, "").trim() ||
-    texto(doc, "chNFe") ||
-    texto(doc, "Id");
+    const descFormatada = linhasServico.join(" · ") || descServico;
 
-  const numeroNf = texto(ide, "nNF") || texto(doc, "nNF");
-  const serieNf = texto(ide, "serie") || texto(doc, "serie");
-  const dataEmissao = dataNfe(doc);
-  const valorTotal = numero(texto(total, "vNF") || texto(doc, "vNF") || texto(doc, "vLiq") || texto(doc, "vOrig"));
+    itens.push({
+      codigo: codServico,
+      produto: descFormatada,
+      unidade: "un",
+      quantidade: 1,
+      valor_custo: valorTotal,
+      valor_venda: valorTotal,
+    });
+  }
 
-  // Duplicatas e Boletos no XML (cobr -> dup ou dup avulsa)
+  // 9. Duplicatas e Boletos no XML (cobr -> dup ou dup avulsa)
   let dupEls = Array.from(doc.getElementsByTagName("dup"));
   if (dupEls.length === 0) {
     const all = Array.from(doc.getElementsByTagName("*"));
@@ -208,5 +339,7 @@ export function parseNfe(conteudo: string): NotaXml {
     serie: serieNf,
     data_emissao: dataEmissao,
     valor_total: valorTotal,
+    tipo_sugerido: tipoSugerido,
   };
 }
+
