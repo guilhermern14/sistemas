@@ -2,6 +2,7 @@ import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import fs from "fs";
 import path from "path";
+import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import pg from "pg";
@@ -486,7 +487,7 @@ function executeMockQuery(sql: string, values: any[] = []) {
     }
     if (trimmed.startsWith("INSERT INTO auth.users")) {
       const newUser = {
-        id: "u-" + Math.random().toString(36).slice(2, 10),
+        id: crypto.randomUUID(),
         email: values[0],
         encrypted_password: values[1],
         raw_user_meta_data: values[2] || {},

@@ -129,6 +129,7 @@ function UsuariosPage() {
     mutationFn: async (userId: string) => fnExcluir({ data: { userId } }),
     onSuccess: () => {
       toast.success("Usuário excluído");
+      setItemParaExcluir(null);
       void qc.invalidateQueries({ queryKey: ["usuarios"] });
       void qc.invalidateQueries({ queryKey: ["usuarios-emails"] });
     },
