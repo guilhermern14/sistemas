@@ -25,9 +25,13 @@ import {
 import { toast } from "sonner";
 import {
   AlertTriangle,
+  Calendar,
   CalendarClock,
+  CalendarDays,
+  CalendarRange,
   Clock,
   Edit,
+  Filter,
   MapPin,
   Play,
   Plus,
@@ -76,6 +80,23 @@ const DURACAO_PRESETS = [
   { value: "custom", label: "Personalizado (minutos)" },
 ];
 
+const DIAS_SEMANA = [
+  { valor: 1, nome: "Segunda", nomeCompleto: "Segunda-feira" },
+  { valor: 2, nome: "Terça", nomeCompleto: "Terça-feira" },
+  { valor: 3, nome: "Quarta", nomeCompleto: "Quarta-feira" },
+  { valor: 4, nome: "Quinta", nomeCompleto: "Quinta-feira" },
+  { valor: 5, nome: "Sexta", nomeCompleto: "Sexta-feira" },
+  { valor: 6, nome: "Sábado", nomeCompleto: "Sábado" },
+];
+
+function getNomeDiaSemana(dataStr: string) {
+  if (!dataStr) return "";
+  const d = new Date(dataStr);
+  if (isNaN(d.getTime())) return "";
+  const nomes = ["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"];
+  return nomes[d.getDay()] || "";
+}
+
 function formatarPrevisaoTermino(dataInicioStr: string, duracaoMinutos: number) {
   if (!dataInicioStr) return "";
   const dInicio = new Date(dataInicioStr);
@@ -84,8 +105,11 @@ function formatarPrevisaoTermino(dataInicioStr: string, duracaoMinutos: number) 
   const horaInicio = dInicio.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
   const horaFim = dFim.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
   const dataInicioFormatada = dInicio.toLocaleDateString("pt-BR");
-  return `${dataInicioFormatada} · ${horaInicio} às ${horaFim} (${duracaoMinutos} min)`;
+  const diaSemana = getNomeDiaSemana(dataInicioStr);
+  return `${diaSemana}, ${dataInicioFormatada} · ${horaInicio} às ${horaFim} (${duracaoMinutos} min)`;
 }
+
+type TipoFiltroPeriodo = "todos" | "hoje" | "dia_semana" | "semana" | "mes" | "data_especifica";
 
 function AgendamentosPage() {
   const qc = useQueryClient();
@@ -110,6 +134,15 @@ function AgendamentosPage() {
   const [editando, setEditando] = useState<Servico | null>(null);
   const [itemParaExcluir, setItemParaExcluir] = useState<string | null>(null);
 
+  // Estados dos Filtros
+  const [filtroPeriodo, setFiltroPeriodo] = useState<TipoFiltroPeriodo>("todos");
+  const [diaSemanaSelecionado, setDiaSemanaSelecionado] = useState<number>(1); // 1 = Segunda
+  const [dataEspecifica, setDataEspecifica] = useState<string>(() => new Date().toISOString().split("T")[0]);
+  const [mesSelecionado, setMesSelecionado] = useState<string>(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
+
   // Serviços agendados e em andamento
   const { data: servicos = [], isLoading } = useQuery({
     queryKey: ["agendamentos", role, user?.id],
@@ -129,15 +162,119 @@ function AgendamentosPage() {
     refetchInterval: 4000,
   });
 
+  // Ordenação cronológica estrita: sempre os mais próximos primeiro (em data e hora)
+  const servicosOrdenados = useMemo(() => {
+    return [...servicos].sort((a, b) => {
+      const timeA = a.data_agendada ? new Date(a.data_agendada).getTime() : 0;
+      const timeB = b.data_agendada ? new Date(b.data_agendada).getTime() : 0;
+      return timeA - timeB;
+    });
+  }, [servicos]);
+
+  // Filtragem por busca e por período/dia da semana/mês
   const servicosFiltrados = useMemo(() => {
-    const termo = busca.trim().toLowerCase();
-    if (!termo) return servicos;
-    return servicos.filter((s) =>
-      `${s.numero_pedido ?? ""} ${s.clientes?.nome ?? ""} ${s.clientes?.telefone ?? ""} ${s.clientes?.cidade ?? ""} ${s.tipo ?? ""} ${s.descricao ?? ""} ${s.status ?? ""}`
-        .toLowerCase()
-        .includes(termo),
-    );
-  }, [servicos, busca]);
+    const agora = new Date();
+
+    return servicosOrdenados.filter((s) => {
+      // 1. Filtro de Texto
+      const termo = busca.trim().toLowerCase();
+      if (termo) {
+        const matchesTermo = `${s.numero_pedido ?? ""} ${s.clientes?.nome ?? ""} ${s.clientes?.telefone ?? ""} ${s.clientes?.cidade ?? ""} ${s.tipo ?? ""} ${s.descricao ?? ""} ${s.status ?? ""}`
+          .toLowerCase()
+          .includes(termo);
+        if (!matchesTermo) return false;
+      }
+
+      if (!s.data_agendada) return filtroPeriodo === "todos";
+      const dataS = new Date(s.data_agendada);
+      if (isNaN(dataS.getTime())) return filtroPeriodo === "todos";
+
+      // 2. Filtro de Período
+      if (filtroPeriodo === "hoje") {
+        return (
+          dataS.getFullYear() === agora.getFullYear() &&
+          dataS.getMonth() === agora.getMonth() &&
+          dataS.getDate() === agora.getDate()
+        );
+      }
+
+      if (filtroPeriodo === "dia_semana") {
+        return dataS.getDay() === diaSemanaSelecionado;
+      }
+
+      if (filtroPeriodo === "semana") {
+        // Semana inteira (Segunda a Domingo)
+        const diaSemanaHoje = agora.getDay();
+        const distSegunda = diaSemanaHoje === 0 ? -6 : 1 - diaSemanaHoje;
+        const inicioSemana = new Date(agora);
+        inicioSemana.setDate(agora.getDate() + distSegunda);
+        inicioSemana.setHours(0, 0, 0, 0);
+
+        const fimSemana = new Date(inicioSemana);
+        fimSemana.setDate(inicioSemana.getDate() + 6);
+        fimSemana.setHours(23, 59, 59, 999);
+
+        return dataS.getTime() >= inicioSemana.getTime() && dataS.getTime() <= fimSemana.getTime();
+      }
+
+      if (filtroPeriodo === "mes") {
+        if (mesSelecionado) {
+          const [ano, mes] = mesSelecionado.split("-").map(Number);
+          return dataS.getFullYear() === ano && dataS.getMonth() + 1 === mes;
+        }
+        return (
+          dataS.getFullYear() === agora.getFullYear() &&
+          dataS.getMonth() === agora.getMonth()
+        );
+      }
+
+      if (filtroPeriodo === "data_especifica" && dataEspecifica) {
+        const [ano, mes, dia] = dataEspecifica.split("-").map(Number);
+        return (
+          dataS.getFullYear() === ano &&
+          dataS.getMonth() + 1 === mes &&
+          dataS.getDate() === dia
+        );
+      }
+
+      return true;
+    });
+  }, [servicosOrdenados, busca, filtroPeriodo, diaSemanaSelecionado, mesSelecionado, dataEspecifica]);
+
+  // Contadores para os filtros
+  const contadores = useMemo(() => {
+    const agora = new Date();
+    let hoje = 0;
+    let semana = 0;
+    let mes = 0;
+
+    const diaSemanaHoje = agora.getDay();
+    const distSegunda = diaSemanaHoje === 0 ? -6 : 1 - diaSemanaHoje;
+    const inicioSemana = new Date(agora);
+    inicioSemana.setDate(agora.getDate() + distSegunda);
+    inicioSemana.setHours(0, 0, 0, 0);
+    const fimSemana = new Date(inicioSemana);
+    fimSemana.setDate(inicioSemana.getDate() + 6);
+    fimSemana.setHours(23, 59, 59, 999);
+
+    for (const s of servicosOrdenados) {
+      if (!s.data_agendada) continue;
+      const d = new Date(s.data_agendada);
+      if (isNaN(d.getTime())) continue;
+
+      if (d.getFullYear() === agora.getFullYear() && d.getMonth() === agora.getMonth() && d.getDate() === agora.getDate()) {
+        hoje++;
+      }
+      if (d.getTime() >= inicioSemana.getTime() && d.getTime() <= fimSemana.getTime()) {
+        semana++;
+      }
+      if (d.getFullYear() === agora.getFullYear() && d.getMonth() === agora.getMonth()) {
+        mes++;
+      }
+    }
+
+    return { todos: servicosOrdenados.length, hoje, semana, mes };
+  }, [servicosOrdenados]);
 
   const { data: clientes = [] } = useQuery({
     queryKey: ["clientes-simples"],
@@ -525,14 +662,139 @@ function AgendamentosPage() {
         )}
       </div>
 
-      <div className="relative max-w-xl">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          className="pl-9"
-          value={busca}
-          onChange={(e) => setBusca(e.target.value)}
-          placeholder="Pesquisar por número do pedido, cliente, telefone, cidade ou serviço..."
-        />
+      <div className="space-y-3">
+        <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
+          <div className="relative flex-1 max-w-xl">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="pl-9"
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Pesquisar por número do pedido, cliente, telefone, cidade ou serviço..."
+            />
+          </div>
+
+          {/* Seletor de Data/Mês quando aplicável */}
+          {filtroPeriodo === "data_especifica" && (
+            <div className="flex items-center gap-2">
+              <Label className="text-xs text-muted-foreground whitespace-nowrap">Data:</Label>
+              <Input
+                type="date"
+                className="w-auto h-9 text-xs"
+                value={dataEspecifica}
+                onChange={(e) => setDataEspecifica(e.target.value)}
+              />
+            </div>
+          )}
+
+          {filtroPeriodo === "mes" && (
+            <div className="flex items-center gap-2">
+              <Label className="text-xs text-muted-foreground whitespace-nowrap">Mês:</Label>
+              <Input
+                type="month"
+                className="w-auto h-9 text-xs"
+                value={mesSelecionado}
+                onChange={(e) => setMesSelecionado(e.target.value)}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Filtros rápidos de Período */}
+        <div className="flex flex-wrap items-center gap-1.5 p-1 bg-muted/50 rounded-lg border text-xs">
+          <Button
+            type="button"
+            size="sm"
+            variant={filtroPeriodo === "todos" ? "default" : "ghost"}
+            className="h-8 px-3 text-xs"
+            onClick={() => setFiltroPeriodo("todos")}
+          >
+            Todos ({contadores.todos})
+          </Button>
+
+          <Button
+            type="button"
+            size="sm"
+            variant={filtroPeriodo === "hoje" ? "default" : "ghost"}
+            className="h-8 px-3 text-xs gap-1.5"
+            onClick={() => setFiltroPeriodo("hoje")}
+          >
+            <Calendar className="h-3.5 w-3.5" />
+            Hoje ({contadores.hoje})
+          </Button>
+
+          <Button
+            type="button"
+            size="sm"
+            variant={filtroPeriodo === "dia_semana" ? "default" : "ghost"}
+            className="h-8 px-3 text-xs gap-1.5"
+            onClick={() => setFiltroPeriodo("dia_semana")}
+          >
+            <CalendarDays className="h-3.5 w-3.5" />
+            Por Dia da Semana
+          </Button>
+
+          <Button
+            type="button"
+            size="sm"
+            variant={filtroPeriodo === "semana" ? "default" : "ghost"}
+            className="h-8 px-3 text-xs gap-1.5"
+            onClick={() => setFiltroPeriodo("semana")}
+          >
+            <CalendarRange className="h-3.5 w-3.5" />
+            Semana toda ({contadores.semana})
+          </Button>
+
+          <Button
+            type="button"
+            size="sm"
+            variant={filtroPeriodo === "mes" ? "default" : "ghost"}
+            className="h-8 px-3 text-xs gap-1.5"
+            onClick={() => setFiltroPeriodo("mes")}
+          >
+            <CalendarClock className="h-3.5 w-3.5" />
+            Mês todo ({contadores.mes})
+          </Button>
+
+          <Button
+            type="button"
+            size="sm"
+            variant={filtroPeriodo === "data_especifica" ? "default" : "ghost"}
+            className="h-8 px-3 text-xs gap-1.5"
+            onClick={() => setFiltroPeriodo("data_especifica")}
+          >
+            <Filter className="h-3.5 w-3.5" />
+            Data específica
+          </Button>
+        </div>
+
+        {/* Sub-filtro de Dias da Semana (Segunda a Sábado) */}
+        {filtroPeriodo === "dia_semana" && (
+          <div className="flex flex-wrap items-center gap-1.5 p-2 bg-primary/5 rounded-lg border border-primary/20 animate-in fade-in slide-in-from-top-1">
+            <span className="text-xs font-semibold text-primary mr-1">Dia da semana:</span>
+            {DIAS_SEMANA.map((dia) => {
+              const ativo = diaSemanaSelecionado === dia.valor;
+              const countDia = servicosOrdenados.filter((s) => {
+                if (!s.data_agendada) return false;
+                const d = new Date(s.data_agendada);
+                return !isNaN(d.getTime()) && d.getDay() === dia.valor;
+              }).length;
+
+              return (
+                <Button
+                  key={dia.valor}
+                  type="button"
+                  size="sm"
+                  variant={ativo ? "default" : "outline"}
+                  className={`h-7 px-2.5 text-xs ${ativo ? "" : "bg-background"}`}
+                  onClick={() => setDiaSemanaSelecionado(dia.valor)}
+                >
+                  {dia.nome} ({countDia})
+                </Button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {isLoading ? (
