@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth, roleLabels, type AppRole } from "@/hooks/useAuth";
 import {
   LayoutDashboard,
+  Calendar,
   CalendarClock,
   ClipboardCheck,
   CircleDollarSign,
@@ -36,6 +37,7 @@ type NavItem = { to: string; label: string; icon: typeof Users; roles: AppRole[]
 
 const navItems: NavItem[] = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "atendente", "campo", "financeiro"] },
+  { to: "/agenda", label: "Agenda", icon: Calendar, roles: ["admin", "atendente", "campo", "financeiro"] },
   { to: "/agendamentos", label: "Agendamentos", icon: CalendarClock, roles: ["admin", "atendente", "campo"] },
   { to: "/clientes", label: "Clientes", icon: Users, roles: ["admin", "atendente"] },
   { to: "/prontos", label: "Serviços prontos", icon: ClipboardCheck, roles: ["admin", "atendente", "campo", "financeiro"] },
