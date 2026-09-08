@@ -40,6 +40,9 @@ export type Servico = {
   valor: number | null;
   horas_mao_obra: number;
   valor_mao_obra: number;
+  custo_adicional?: number | null;
+  descricao_custo_adicional?: string | null;
+  incluir_custo_no_total?: boolean | null;
   desconto: number;
   valor_bruto: number;
   pos_venda: string | null;

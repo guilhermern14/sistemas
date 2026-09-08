@@ -249,6 +249,18 @@ function ProntosPage() {
                       <span className="text-muted-foreground">Mão de obra: </span>
                       {Number(s.horas_mao_obra ?? 0)}h · {formatMoney(s.valor_mao_obra ?? 0)}
                     </p>
+                    {Number(s.custo_adicional ?? 0) > 0 && (
+                      <p className="text-amber-600 dark:text-amber-400">
+                        <span className="text-muted-foreground">Custo adicional: </span>
+                        <span className="font-medium">{formatMoney(s.custo_adicional)}</span>
+                        {s.descricao_custo_adicional && (
+                          <span className="text-muted-foreground text-xs"> ({s.descricao_custo_adicional})</span>
+                        )}
+                        {s.incluir_custo_no_total && (
+                          <span className="text-xs text-blue-600 dark:text-blue-400 ml-1">(cobrado)</span>
+                        )}
+                      </p>
+                    )}
                     <p>
                       <span className="text-muted-foreground">Valor: </span>
                       {formatMoney(s.valor)}

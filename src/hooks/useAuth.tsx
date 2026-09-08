@@ -111,3 +111,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 export const useAuth = () => useContext(AuthContext);
 
 export const canSeeValues = (role: AppRole | null) => role === "admin" || role === "financeiro";
+
+export const canEditMaoObra = (role: AppRole | null) =>
+  role === "admin" || role === "financeiro" || role === "atendente";

@@ -353,6 +353,9 @@ export type Database = {
           valor: number | null
           valor_bruto: number
           valor_mao_obra: number
+          custo_adicional?: number | null
+          descricao_custo_adicional?: string | null
+          incluir_custo_no_total?: boolean | null
         }
         Insert: {
           cliente_id: string
@@ -376,6 +379,9 @@ export type Database = {
           valor?: number | null
           valor_bruto?: number
           valor_mao_obra?: number
+          custo_adicional?: number | null
+          descricao_custo_adicional?: string | null
+          incluir_custo_no_total?: boolean | null
         }
         Update: {
           cliente_id?: string
@@ -399,6 +405,9 @@ export type Database = {
           valor?: number | null
           valor_bruto?: number
           valor_mao_obra?: number
+          custo_adicional?: number | null
+          descricao_custo_adicional?: string | null
+          incluir_custo_no_total?: boolean | null
         }
         Relationships: [
           {

@@ -113,7 +113,9 @@ export async function gerarOrcamentoPdf(
       0,
     );
     const maoObra = Number(servico.valor_mao_obra ?? 0);
-    const bruto = totalProdutos + maoObra;
+    const custoAdicional = Number(servico.custo_adicional ?? 0);
+    const incluirCustoNoTotal = Boolean(servico.incluir_custo_no_total);
+    const bruto = totalProdutos + maoObra + (incluirCustoNoTotal ? custoAdicional : 0);
     const desconto = Number(servico.desconto ?? 0);
     const total = servico.valor != null ? Number(servico.valor) : bruto - desconto;
 
@@ -261,6 +263,15 @@ export async function gerarOrcamentoPdf(
     doc.text("Mão de obra:", totBoxX, y);
     doc.text(formatMoney(maoObra), pageWidth - margin - 2, y, { align: "right" });
     y += 4.5;
+
+    if (incluirCustoNoTotal && custoAdicional > 0) {
+      const labelCusto = servico.descricao_custo_adicional
+        ? `Despesas (${servico.descricao_custo_adicional}):`
+        : "Deslocamento / Despesas:";
+      doc.text(labelCusto, totBoxX, y);
+      doc.text(formatMoney(custoAdicional), pageWidth - margin - 2, y, { align: "right" });
+      y += 4.5;
+    }
 
     if (desconto > 0) {
       doc.text("Desconto:", totBoxX, y);

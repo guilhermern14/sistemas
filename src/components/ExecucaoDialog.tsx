@@ -6,12 +6,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { ImagePlus, Plus, Search, Trash2, X } from "lucide-react";
+import { Fuel, ImagePlus, Plus, Search, Trash2, X } from "lucide-react";
 import { formatMoney } from "@/lib/servico";
 import { calcMaoObra } from "@/lib/empresa";
 import { assinarUrl, urlFoto } from "@/lib/fotos";
 import { gerarIdSeguro } from "@/lib/id";
+import { useAuth, canEditMaoObra } from "@/hooks/useAuth";
 import type { ProdutoEstoque, Servico, ServicoCentral, ServicoFoto, ServicoProduto } from "@/lib/types";
 
 type ItemSelecionado = {
@@ -43,10 +45,19 @@ export function ExecucaoDialog({
   verValores: boolean;
 }) {
   const qc = useQueryClient();
+  const { role } = useAuth();
+  const podeEditarMaoObra = canEditMaoObra(role);
+  const exibirValores = verValores || podeEditarMaoObra;
+
   const [relatorio, setRelatorio] = useState("");
   const [horas, setHoras] = useState("0");
+  const [valorMaoObra, setValorMaoObra] = useState("");
+  const [maoObraManual, setMaoObraManual] = useState(false);
   const [itens, setItens] = useState<ItemSelecionado[]>([]);
   const [busca, setBusca] = useState("");
+  const [custoAdicional, setCustoAdicional] = useState("");
+  const [descricaoCustoAdicional, setDescricaoCustoAdicional] = useState("");
+  const [incluirNoTotal, setIncluirNoTotal] = useState(false);
   const [fotos, setFotos] = useState<ServicoFoto[]>([]);
   const [novasFotos, setNovasFotos] = useState<File[]>([]);
   const [centrais, setCentrais] = useState<CentralForm[]>([]);
@@ -95,7 +106,26 @@ export function ExecucaoDialog({
   useEffect(() => {
     if (!servico) return;
     setRelatorio(servico.relatorio ?? "");
-    setHoras(String(servico.horas_mao_obra ?? 0));
+    const h = Number(servico.horas_mao_obra ?? 0);
+    setHoras(String(h));
+
+    const padraoMaoObra = calcMaoObra(h);
+    const salvoMaoObra = servico.valor_mao_obra != null ? Number(servico.valor_mao_obra) : null;
+    if (salvoMaoObra != null && salvoMaoObra > 0) {
+      setValorMaoObra(String(salvoMaoObra));
+      setMaoObraManual(salvoMaoObra !== padraoMaoObra);
+    } else {
+      setValorMaoObra(padraoMaoObra > 0 ? String(padraoMaoObra) : "");
+      setMaoObraManual(false);
+    }
+
+    setCustoAdicional(
+      servico.custo_adicional != null && Number(servico.custo_adicional) > 0
+        ? String(servico.custo_adicional)
+        : ""
+    );
+    setDescricaoCustoAdicional(servico.descricao_custo_adicional ?? "");
+    setIncluirNoTotal(Boolean(servico.incluir_custo_no_total));
     setBusca("");
     setNovasFotos([]);
   }, [servico]);
@@ -188,9 +218,28 @@ export function ExecucaoDialog({
     setBusca("");
   };
 
+  const handleHorasChange = (val: string) => {
+    setHoras(val);
+    if (!maoObraManual) {
+      const padrao = calcMaoObra(Number(val || 0));
+      setValorMaoObra(padrao > 0 ? String(padrao) : "");
+    }
+  };
+
+  const handleRecalcularMaoObra = () => {
+    setMaoObraManual(false);
+    const padrao = calcMaoObra(Number(horas || 0));
+    setValorMaoObra(padrao > 0 ? String(padrao) : "");
+  };
+
+  const numCustoAdicional = Math.max(Number(custoAdicional || 0), 0);
   const total = itens.reduce((s, i) => s + i.quantidade * i.valor_unitario, 0);
-  const maoObra = calcMaoObra(Number(horas || 0));
-  const bruto = total + maoObra;
+  const maoObra = podeEditarMaoObra
+    ? (valorMaoObra !== "" ? Math.max(Number(valorMaoObra) || 0, 0) : calcMaoObra(Number(horas || 0)))
+    : (maoObraManual && servico?.valor_mao_obra != null && Number(horas || 0) === Number(servico.horas_mao_obra ?? 0)
+        ? Number(servico.valor_mao_obra)
+        : calcMaoObra(Number(horas || 0)));
+  const bruto = total + maoObra + (incluirNoTotal ? numCustoAdicional : 0);
 
   const adicionarFotos = (files: FileList | null) => {
     if (!files) return;
@@ -224,6 +273,9 @@ export function ExecucaoDialog({
         produtos_usados: resumo || null,
         horas_mao_obra: Number(horas || 0),
         valor_mao_obra: maoObra,
+        custo_adicional: numCustoAdicional,
+        descricao_custo_adicional: descricaoCustoAdicional.trim() || null,
+        incluir_custo_no_total: incluirNoTotal,
         valor_bruto: Number(bruto.toFixed(2)),
         valor: Number(Math.max(bruto - desconto, 0).toFixed(2)),
       };
@@ -343,12 +395,108 @@ export function ExecucaoDialog({
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>Horas de mão de obra</Label>
-              <Input type="number" min="0" step="0.5" value={horas} onChange={(e) => setHoras(e.target.value)} />
+              <Input
+                type="number"
+                min="0"
+                step="0.5"
+                value={horas}
+                onChange={(e) => handleHorasChange(e.target.value)}
+              />
             </div>
             <div className="space-y-2">
-              <Label>Valor da mão de obra</Label>
-              <Input readOnly value={formatMoney(maoObra)} />
-              <p className="text-xs text-muted-foreground">1ª hora R$ 100 · demais R$ 60/h</p>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="valorMaoObra">Valor da mão de obra (R$)</Label>
+                {podeEditarMaoObra && maoObraManual && (
+                  <button
+                    type="button"
+                    onClick={handleRecalcularMaoObra}
+                    className="text-xs text-primary hover:underline font-medium"
+                    title="Restaurar valor automático calculado pelas horas"
+                  >
+                    Auto (calcular p/ horas)
+                  </button>
+                )}
+              </div>
+              {podeEditarMaoObra ? (
+                <>
+                  <Input
+                    id="valorMaoObra"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="0,00"
+                    value={valorMaoObra}
+                    onChange={(e) => {
+                      setValorMaoObra(e.target.value);
+                      setMaoObraManual(true);
+                    }}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {maoObraManual
+                      ? "Valor definido manualmente (clique em 'Auto' para calcular por horas)"
+                      : "Padrão automático: 1ª hora R$ 100 · demais R$ 60/h"}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <Input
+                    id="valorMaoObra"
+                    readOnly
+                    disabled
+                    value={exibirValores ? formatMoney(maoObra) : "Definido pela empresa"}
+                    className="bg-muted cursor-not-allowed"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {exibirValores
+                      ? "Calculado automaticamente pelas horas (edição manual liberada apenas para admin, financeiro e atendente)"
+                      : "Apenas admin, financeiro e atendente podem alterar valores"}
+                  </p>
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-lg border bg-muted/20 p-3.5 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-1">
+              <Label className="text-sm font-semibold flex items-center gap-1.5">
+                <Fuel className="h-4 w-4 text-amber-500" />
+                Custo adicional (deslocamento e despesas)
+              </Label>
+              <span className="text-xs text-muted-foreground">Gasolina, almoço, pedágio, etc.</span>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Valor do custo adicional (R$)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0,00"
+                  value={custoAdicional}
+                  onChange={(e) => setCustoAdicional(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Discriminação das despesas (opcional)</Label>
+                <Input
+                  placeholder="Ex.: Gasolina R$ 40 + Pedágio R$ 15"
+                  value={descricaoCustoAdicional}
+                  onChange={(e) => setDescricaoCustoAdicional(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="flex items-center space-x-2 pt-0.5">
+              <Checkbox
+                id="incluirNoTotal"
+                checked={incluirNoTotal}
+                onCheckedChange={(checked) => setIncluirNoTotal(Boolean(checked))}
+              />
+              <label
+                htmlFor="incluirNoTotal"
+                className="text-xs font-medium leading-none text-muted-foreground hover:text-foreground cursor-pointer"
+              >
+                Repassar/cobrar esta despesa do cliente no valor total da OS
+              </label>
             </div>
           </div>
 
@@ -458,21 +606,29 @@ export function ExecucaoDialog({
                   <div key={`${i.estoque_id}-${idx}`} className="flex items-center gap-2 rounded-md border p-2">
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">{i.produto}</p>
-                      <p className="font-mono text-xs text-muted-foreground">{i.codigo ?? "—"}{verValores ? ` · ${formatMoney(i.valor_unitario)}` : ""}</p>
+                      <p className="font-mono text-xs text-muted-foreground">{i.codigo ?? "—"}{exibirValores ? ` · ${formatMoney(i.valor_unitario)}` : ""}</p>
                     </div>
                     <Input className="h-8 w-20" type="number" min="0" step="0.01" value={i.quantidade} onChange={(e) => setItens((atual) => atual.map((x, j) => j === idx ? { ...x, quantidade: Number(e.target.value) } : x))} />
                     <Button size="icon" variant="ghost" onClick={() => setItens((atual) => atual.filter((_, j) => j !== idx))}><Trash2 className="h-4 w-4" /></Button>
                   </div>
                 ))}
-                {verValores && <p className="text-right text-sm text-muted-foreground">Total em produtos: {formatMoney(total)}</p>}
+                {exibirValores && <p className="text-right text-sm text-muted-foreground">Total em produtos: {formatMoney(total)}</p>}
               </div>
             )}
           </div>
 
-          {verValores && (
-            <div className="rounded-md border p-3 text-sm">
+          {exibirValores && (
+            <div className="rounded-md border p-3 text-sm space-y-1">
               <div className="flex justify-between"><span className="text-muted-foreground">Produtos</span><span>{formatMoney(total)}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Mão de obra</span><span>{formatMoney(maoObra)}</span></div>
+              {numCustoAdicional > 0 && (
+                <div className="flex justify-between text-amber-600 dark:text-amber-400">
+                  <span className="flex items-center gap-1">
+                    Custo adicional {incluirNoTotal ? "(cobrado do cliente)" : "(despesa interna)"}
+                  </span>
+                  <span>{formatMoney(numCustoAdicional)}</span>
+                </div>
+              )}
               <div className="mt-1 flex justify-between border-t pt-1 font-medium"><span>Total do serviço</span><span>{formatMoney(bruto)}</span></div>
             </div>
           )}
