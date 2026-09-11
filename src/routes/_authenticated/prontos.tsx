@@ -332,7 +332,13 @@ function ProntosPage() {
         </DialogContent>
       </Dialog>
 
-      <ExecucaoDialog servico={editando} onClose={() => setEditando(null)} verValores={verValores} />
+      {editando && (
+        <ExecucaoDialog
+          servico={editando}
+          onClose={() => setEditando(null)}
+          verValores={verValores}
+        />
+      )}
     </div>
 
   );

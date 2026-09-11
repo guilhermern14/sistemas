@@ -182,3 +182,43 @@ export type NotaFiscalItem = {
   valor_custo: number;
   valor_venda: number;
 };
+
+export type OrcamentoStatus = "pendente" | "aprovado" | "recusado";
+
+export type Orcamento = {
+  id: string;
+  numero: number;
+  cliente_id: string;
+  data: string;
+  validade_dias: number;
+  descricao: string | null;
+  status: OrcamentoStatus;
+  horas_mao_obra: number;
+  valor_mao_obra: number;
+  custo_adicional?: number | null;
+  descricao_custo_adicional?: string | null;
+  incluir_custo_no_total?: boolean | null;
+  desconto: number;
+  valor_bruto: number;
+  valor_total: number;
+  observacoes: string | null;
+  forma_pagamento: string | null;
+  servico_id_gerado?: string | null;
+  aprovado_em?: string | null;
+  created_at: string;
+  created_by?: string | null;
+  clientes?: ClienteResumo | null;
+};
+
+export type OrcamentoItem = {
+  id: string;
+  orcamento_id: string;
+  estoque_id: string | null;
+  codigo: string | null;
+  produto: string;
+  unidade: string;
+  quantidade: number;
+  valor_custo: number;
+  valor_venda: number;
+  created_at?: string;
+};

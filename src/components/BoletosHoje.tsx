@@ -36,20 +36,26 @@ export function BoletosHoje() {
   });
 
   useEffect(() => {
+    let isMounted = true;
     if (!habilitado || boletos.length === 0) return;
     try {
       const chave = `boletos-aviso-${hojeISO()}`;
       if (typeof window !== "undefined" && window.sessionStorage) {
         if (window.sessionStorage.getItem(chave)) return;
         window.sessionStorage.setItem(chave, "1");
-        setAberto(true);
+        if (isMounted) {
+          setAberto(true);
+        }
       }
     } catch {
       // Ignora erro se sessionStorage estiver indisponível
     }
+    return () => {
+      isMounted = false;
+    };
   }, [habilitado, boletos.length]);
 
-  if (!habilitado || boletos.length === 0) return null;
+  if (!habilitado || (boletos.length === 0 && !aberto)) return null;
 
   const total = boletos.reduce((s, b) => s + Number(b.valor), 0);
 

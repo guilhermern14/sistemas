@@ -543,6 +543,133 @@ export type Database = {
         }
         Relationships: []
       }
+      orcamentos: {
+        Row: {
+          id: string
+          numero: number
+          cliente_id: string
+          data: string
+          validade_dias: number
+          descricao: string | null
+          status: string
+          horas_mao_obra: number
+          valor_mao_obra: number
+          custo_adicional: number | null
+          descricao_custo_adicional: string | null
+          incluir_custo_no_total: boolean | null
+          desconto: number
+          valor_bruto: number
+          valor_total: number
+          observacoes: string | null
+          forma_pagamento: string | null
+          servico_id_gerado: string | null
+          aprovado_em: string | null
+          created_by: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          numero?: number
+          cliente_id: string
+          data?: string
+          validade_dias?: number
+          descricao?: string | null
+          status?: string
+          horas_mao_obra?: number
+          valor_mao_obra?: number
+          custo_adicional?: number | null
+          descricao_custo_adicional?: string | null
+          incluir_custo_no_total?: boolean | null
+          desconto?: number
+          valor_bruto?: number
+          valor_total?: number
+          observacoes?: string | null
+          forma_pagamento?: string | null
+          servico_id_gerado?: string | null
+          aprovado_em?: string | null
+          created_by?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          numero?: number
+          cliente_id?: string
+          data?: string
+          validade_dias?: number
+          descricao?: string | null
+          status?: string
+          horas_mao_obra?: number
+          valor_mao_obra?: number
+          custo_adicional?: number | null
+          descricao_custo_adicional?: string | null
+          incluir_custo_no_total?: boolean | null
+          desconto?: number
+          valor_bruto?: number
+          valor_total?: number
+          observacoes?: string | null
+          forma_pagamento?: string | null
+          servico_id_gerado?: string | null
+          aprovado_em?: string | null
+          created_by?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "orcamentos_cliente_id_fkey"
+            columns: ["cliente_id"]
+            isOneToOne: false
+            referencedRelation: "clientes"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      orcamento_itens: {
+        Row: {
+          id: string
+          orcamento_id: string
+          estoque_id: string | null
+          codigo: string | null
+          produto: string
+          unidade: string
+          quantidade: number
+          valor_custo: number
+          valor_venda: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          orcamento_id: string
+          estoque_id?: string | null
+          codigo?: string | null
+          produto: string
+          unidade?: string
+          quantidade?: number
+          valor_custo?: number
+          valor_venda?: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          orcamento_id?: string
+          estoque_id?: string | null
+          codigo?: string | null
+          produto?: string
+          unidade?: string
+          quantidade?: number
+          valor_custo?: number
+          valor_venda?: number
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "orcamento_itens_orcamento_id_fkey"
+            columns: ["orcamento_id"]
+            isOneToOne: false
+            referencedRelation: "orcamentos"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
     Views: {
       [_ in never]: never
     }

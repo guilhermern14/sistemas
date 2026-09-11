@@ -955,11 +955,13 @@ function AgendamentosPage() {
         isPending={excluir.isPending}
       />
 
-      <ExecucaoDialog
-        servico={execucao}
-        onClose={() => setExecucao(null)}
-        verValores={verValores}
-      />
+      {execucao && (
+        <ExecucaoDialog
+          servico={execucao}
+          onClose={() => setExecucao(null)}
+          verValores={verValores}
+        />
+      )}
     </div>
   );
 }

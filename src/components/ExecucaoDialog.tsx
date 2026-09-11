@@ -64,6 +64,7 @@ export function ExecucaoDialog({
 
   const { data: estoque = [] } = useQuery({
     queryKey: ["estoque"],
+    enabled: !!servico,
     queryFn: async () => {
       const { data, error } = await supabase.from("estoque").select("*").order("produto");
       if (error) throw error;

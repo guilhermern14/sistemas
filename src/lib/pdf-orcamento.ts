@@ -2,7 +2,7 @@ import { jsPDF } from "jspdf";
 import { EMPRESA } from "./empresa";
 import { formatMoney } from "./servico";
 import { urlFoto } from "./fotos";
-import { enderecoCompleto, type ClienteResumo, type Servico, type ServicoProduto, type ServicoFoto } from "./types";
+import { enderecoCompleto, type ClienteResumo, type Servico, type ServicoProduto, type ServicoFoto, type Orcamento, type OrcamentoItem } from "./types";
 
 const dataBR = (d: Date) => d.toLocaleDateString("pt-BR");
 
@@ -404,6 +404,327 @@ export async function gerarOrcamentoPdf(
     return true;
   } catch (err) {
     console.error("Erro ao gerar PDF:", err);
+    return false;
+  }
+}
+
+/**
+ * Gera o PDF da Proposta Comercial / Orçamento para o cliente
+ */
+export async function gerarPropostaOrcamentoPdf(
+  orcamento: Orcamento,
+  itens: OrcamentoItem[]
+): Promise<boolean> {
+  try {
+    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 14;
+
+    const cliente = orcamento.clientes;
+    const nomeClienteSanitizado = (cliente?.nome ?? "cliente").replace(/[^a-zA-Z0-9_-]/g, "_");
+    const numStr = String(orcamento.numero || "0").padStart(5, "0");
+    const nomeArquivo = `Orcamento_${numStr}_${nomeClienteSanitizado}`;
+
+    let y = 14;
+
+    // --- CABEÇALHO EMPRESA ---
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(15);
+    doc.setTextColor(29, 78, 216); // Azul corporativo
+    doc.text(EMPRESA.nome, margin, y + 2);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text("Câmeras, Alarme, Interfone, motor de portão e cerca elétrica", margin, y + 7);
+    doc.text(`CNPJ: ${EMPRESA.cnpj} · Tel: ${EMPRESA.telefone}`, margin, y + 11.5);
+    if (EMPRESA.email) {
+      doc.text(`E-mail: ${EMPRESA.email}`, margin, y + 16);
+    }
+
+    // Badge / Título Direita
+    doc.setFillColor(239, 246, 255);
+    doc.setDrawColor(191, 219, 254);
+    doc.roundedRect(pageWidth - margin - 58, y - 2, 58, 18, 2, 2, "FD");
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(29, 78, 216);
+    doc.text("ORÇAMENTO COMERCIAL", pageWidth - margin - 29, y + 3.5, { align: "center" });
+
+    doc.setFontSize(12);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`Nº ${numStr}`, pageWidth - margin - 29, y + 9.5, { align: "center" });
+
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(100, 116, 139);
+    doc.text(orcamento.status === "aprovado" ? "STATUS: APROVADO" : "STATUS: PROPOSTA", pageWidth - margin - 29, y + 14, { align: "center" });
+
+    y += 22;
+    doc.setDrawColor(29, 78, 216);
+    doc.setLineWidth(0.8);
+    doc.line(margin, y, pageWidth - margin, y);
+
+    // --- DATAS E PRAZOS ---
+    y += 6;
+    doc.setFontSize(8.5);
+    doc.setTextColor(15, 23, 42);
+
+    const dataDoc = new Date(orcamento.data || orcamento.created_at || new Date());
+    const validadeDias = orcamento.validade_dias || 15;
+    const dataValidade = new Date(dataDoc);
+    dataValidade.setDate(dataValidade.getDate() + validadeDias);
+
+    doc.setFont("helvetica", "bold");
+    doc.text(`Data de Emissão:`, margin, y);
+    doc.setFont("helvetica", "normal");
+    doc.text(dataBR(dataDoc), margin + 28, y);
+
+    doc.setFont("helvetica", "bold");
+    doc.text(`Validade da Proposta:`, margin + 65, y);
+    doc.setFont("helvetica", "normal");
+    doc.text(`${dataBR(dataValidade)} (${validadeDias} dias)`, margin + 102, y);
+
+    if (orcamento.forma_pagamento) {
+      y += 5;
+      doc.setFont("helvetica", "bold");
+      doc.text(`Condição de Pagamento:`, margin, y);
+      doc.setFont("helvetica", "normal");
+      doc.text(orcamento.forma_pagamento, margin + 42, y);
+    }
+
+    // --- DADOS DO CLIENTE ---
+    y += 8;
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(226, 232, 240);
+    doc.roundedRect(margin, y, pageWidth - margin * 2, 22, 1.5, 1.5, "FD");
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9.5);
+    doc.setTextColor(29, 78, 216);
+    doc.text("DADOS DO CLIENTE", margin + 4, y + 5);
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text("Cliente:", margin + 4, y + 10.5);
+    doc.setFont("helvetica", "normal");
+    doc.text(cliente?.nome ?? "Não informado", margin + 18, y + 10.5);
+
+    if (cliente?.telefone) {
+      doc.setFont("helvetica", "bold");
+      doc.text("Telefone:", margin + 105, y + 10.5);
+      doc.setFont("helvetica", "normal");
+      doc.text(cliente.telefone, margin + 121, y + 10.5);
+    }
+
+    const end = enderecoCompleto(cliente);
+    if (end) {
+      doc.setFont("helvetica", "bold");
+      doc.text("Endereço:", margin + 4, y + 16.5);
+      doc.setFont("helvetica", "normal");
+      doc.text(end, margin + 21, y + 16.5);
+    }
+
+    y += 26;
+
+    // --- ESCOPO / DESCRIÇÃO DO SERVIÇO ---
+    if (orcamento.descricao) {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9.5);
+      doc.setTextColor(29, 78, 216);
+      doc.text("DESCRIÇÃO DOS SERVIÇOS E ESCOPO", margin, y);
+      y += 4.5;
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8.5);
+      doc.setTextColor(51, 65, 85);
+      const splitDesc = doc.splitTextToSize(orcamento.descricao, pageWidth - margin * 2);
+      doc.text(splitDesc, margin, y);
+      y += splitDesc.length * 4.2 + 3;
+    }
+
+    // --- TABELA DE PRODUTOS / EQUIPAMENTOS ---
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9.5);
+    doc.setTextColor(29, 78, 216);
+    doc.text("EQUIPAMENTOS E MATERIAIS COTADOS", margin, y);
+    y += 3.5;
+
+    // Cabeçalho da tabela
+    doc.setFillColor(241, 245, 249);
+    doc.rect(margin, y, pageWidth - margin * 2, 6.5, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.setTextColor(71, 85, 105);
+    doc.text("CÓDIGO", margin + 3, y + 4.2);
+    doc.text("PRODUTO / DISCRIMINAÇÃO", margin + 28, y + 4.2);
+    doc.text("QTD", margin + 115, y + 4.2, { align: "center" });
+    doc.text("UN", margin + 128, y + 4.2, { align: "center" });
+    doc.text("VALOR UNIT.", margin + 155, y + 4.2, { align: "right" });
+    doc.text("SUBTOTAL", pageWidth - margin - 3, y + 4.2, { align: "right" });
+    y += 6.5;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(15, 23, 42);
+
+    let totalProdutos = 0;
+
+    if (itens.length === 0) {
+      doc.text("Nenhum material/equipamento listado nesta proposta.", margin + 3, y + 4.5);
+      y += 7;
+    } else {
+      for (const item of itens) {
+        if (y > 240) {
+          doc.addPage();
+          y = 16;
+        }
+
+        const qtd = Number(item.quantidade || 0);
+        const unit = Number(item.valor_venda || 0);
+        const sub = qtd * unit;
+        totalProdutos += sub;
+
+        const cod = item.codigo || "—";
+        const nomeLines = doc.splitTextToSize(item.produto || "Item", 82);
+        const rowH = Math.max(nomeLines.length * 4, 5.5);
+
+        doc.text(cod, margin + 3, y + 3.8);
+        doc.text(nomeLines, margin + 28, y + 3.8);
+        doc.text(String(qtd), margin + 115, y + 3.8, { align: "center" });
+        doc.text(item.unidade || "UN", margin + 128, y + 3.8, { align: "center" });
+        doc.text(formatMoney(unit), margin + 155, y + 3.8, { align: "right" });
+        doc.text(formatMoney(sub), pageWidth - margin - 3, y + 3.8, { align: "right" });
+
+        doc.setDrawColor(226, 232, 240);
+        doc.setLineWidth(0.2);
+        doc.line(margin, y + rowH, pageWidth - margin, y + rowH);
+        y += rowH;
+      }
+    }
+
+    // --- MÃO DE OBRA E TOTAIS ---
+    y += 4;
+    if (y > 230) {
+      doc.addPage();
+      y = 16;
+    }
+
+    const maoObra = Number(orcamento.valor_mao_obra || 0);
+    const custoAdicional = Number(orcamento.custo_adicional || 0);
+    const incluirCusto = Boolean(orcamento.incluir_custo_no_total);
+    const desconto = Number(orcamento.desconto || 0);
+    const totalGeral = Number(orcamento.valor_total || totalProdutos + maoObra - desconto);
+
+    const totBoxW = 85;
+    const totBoxX = pageWidth - margin - totBoxW;
+
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(226, 232, 240);
+    doc.roundedRect(totBoxX - 4, y - 2, totBoxW + 4, 38, 1.5, 1.5, "FD");
+
+    doc.setFontSize(8.5);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(71, 85, 105);
+
+    doc.text("Total Materiais / Produtos:", totBoxX, y + 3);
+    doc.text(formatMoney(totalProdutos), pageWidth - margin - 2, y + 3, { align: "right" });
+
+    doc.text(`Mão de Obra (${orcamento.horas_mao_obra || 0}h):`, totBoxX, y + 8);
+    doc.text(formatMoney(maoObra), pageWidth - margin - 2, y + 8, { align: "right" });
+
+    let currY = y + 13;
+    if (custoAdicional > 0 && incluirCusto) {
+      const lblCusto = orcamento.descricao_custo_adicional || "Despesas / Deslocamento";
+      doc.text(`${lblCusto}:`, totBoxX, currY);
+      doc.text(formatMoney(custoAdicional), pageWidth - margin - 2, currY, { align: "right" });
+      currY += 5;
+    }
+
+    if (desconto > 0) {
+      doc.setTextColor(220, 38, 38);
+      doc.text("Desconto Concedido:", totBoxX, currY);
+      doc.text(`- ${formatMoney(desconto)}`, pageWidth - margin - 2, currY, { align: "right" });
+      currY += 5;
+    }
+
+    doc.setDrawColor(29, 78, 216);
+    doc.setLineWidth(0.4);
+    doc.line(totBoxX, currY, pageWidth - margin, currY);
+
+    currY += 5;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.setTextColor(29, 78, 216);
+    doc.text("TOTAL DA PROPOSTA:", totBoxX, currY);
+    doc.text(formatMoney(totalGeral), pageWidth - margin - 2, currY, { align: "right" });
+
+    y += 42;
+
+    // --- OBSERVAÇÕES E GARANTIA ---
+    if (y > 235) {
+      doc.addPage();
+      y = 16;
+    }
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.setTextColor(29, 78, 216);
+    doc.text("INFORMAÇÕES ADICIONAIS E CONDIÇÕES DE GARANTIA", margin, y);
+    y += 4;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(71, 85, 105);
+
+    const obsText =
+      orcamento.observacoes ||
+      "Garantia de 1 (um) ano contra defeitos de fabricação dos equipamentos. Garantia de 90 (noventa) dias para a mão de obra de instalação. O orçamento não contempla eventuais obras de alvenaria ou infraestrutura elétrica pesada não especificadas.";
+
+    const splitObs = doc.splitTextToSize(obsText, pageWidth - margin * 2);
+    doc.text(splitObs, margin, y);
+    y += splitObs.length * 3.8 + 8;
+
+    // --- ASSINATURAS ---
+    if (y > 240) {
+      doc.addPage();
+      y = 20;
+    }
+
+    const colW = (pageWidth - margin * 2 - 20) / 2;
+    const signY = Math.min(y + 16, pageHeight - 25);
+
+    doc.setDrawColor(148, 163, 184);
+    doc.setLineWidth(0.3);
+    doc.line(margin, signY, margin + colW, signY);
+    doc.line(margin + colW + 20, signY, pageWidth - margin, signY);
+
+    doc.setFontSize(8);
+    doc.setTextColor(71, 85, 105);
+    doc.text(`${EMPRESA.nome}`, margin + colW / 2, signY + 4, { align: "center" });
+    doc.text("Responsável Técnico / Comercial", margin + colW / 2, signY + 8, { align: "center" });
+
+    doc.text(`Aceite do Cliente: ${cliente?.nome ?? "Cliente"}`, margin + colW + 20 + colW / 2, signY + 4, { align: "center" });
+    doc.text("Data do Aceite: _____/_____/_________ ", margin + colW + 20 + colW / 2, signY + 8, { align: "center" });
+
+    // Rodapé
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.setTextColor(148, 163, 184);
+    doc.text(
+      `${EMPRESA.nome} · CNPJ ${EMPRESA.cnpj} · ${EMPRESA.telefone} · ${EMPRESA.email || ""}`,
+      pageWidth / 2,
+      pageHeight - 8,
+      { align: "center" }
+    );
+
+    doc.save(`${nomeArquivo}.pdf`);
+    return true;
+  } catch (err) {
+    console.error("Erro ao gerar PDF do orçamento:", err);
     return false;
   }
 }

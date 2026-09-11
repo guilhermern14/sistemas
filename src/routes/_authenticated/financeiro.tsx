@@ -176,11 +176,13 @@ function FinanceiroPage() {
   // Helper para parsing de data sem perda por fuso horário
   const parseDataReferencia = (dataStr: string | null | undefined): Date | null => {
     if (!dataStr) return null;
-    if (/^\d{4}-\d{2}-\d{2}$/.test(dataStr)) {
-      const [ano, mes, dia] = dataStr.split("-").map(Number);
+    const s = String(dataStr).trim();
+    const isoDateOnly = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (isoDateOnly) {
+      const [_, ano, mes, dia] = isoDateOnly.map(Number);
       return new Date(ano, mes - 1, dia, 12, 0, 0); // meio-dia local, seguro contra fuso horário
     }
-    const d = new Date(dataStr);
+    const d = new Date(s);
     return isNaN(d.getTime()) ? null : d;
   };
 
@@ -192,6 +194,19 @@ function FinanceiroPage() {
       ? s.pago_em
       : (s.pago_em || s.concluido_em || s.data_agendada || (s as any).created_at);
     return parseDataReferencia(dataStr);
+  };
+
+  // Helper unificado para obter o valor de cobrança do serviço
+  const getValorServico = (s: Servico) => {
+    if (s.valor !== null && s.valor !== undefined && !isNaN(Number(s.valor)) && Number(s.valor) > 0) {
+      return Number(s.valor);
+    }
+    if (s.valor_total !== null && s.valor_total !== undefined && !isNaN(Number(s.valor_total)) && Number(s.valor_total) > 0) {
+      return Number(s.valor_total);
+    }
+    const bruto = Number(s.valor_bruto ?? 0);
+    const desc = Number(s.desconto ?? 0);
+    return Math.max(bruto - desc, 0);
   };
 
   // Filtragem dos serviços por período, status e busca
@@ -350,13 +365,13 @@ function FinanceiroPage() {
 
   // 1. A receber (serviços pendentes no filtro atual)
   const valorAReceber = servicosPendentesFiltrados.reduce(
-    (a, s) => a + Number(s.valor ?? (Number(s.valor_bruto ?? 0) - Number(s.desconto ?? 0))),
+    (a, s) => a + getValorServico(s),
     0
   );
 
   // 2. Recebido / Faturamento realizado (serviços pagos no filtro atual)
   const recebido = servicosPagosFiltrados.reduce(
-    (a, s) => a + Number(s.valor ?? (Number(s.valor_bruto ?? 0) - Number(s.desconto ?? 0))),
+    (a, s) => a + getValorServico(s),
     0
   );
 
@@ -373,24 +388,57 @@ function FinanceiroPage() {
   const custoAdicionalTotal = custosServicosFiltrados.reduce((a, c) => a + c.custoAdicional, 0);
   const custoTotalGeral = custoPecasTotal + custoAdicionalTotal;
 
-  // Custos apenas dos serviços que já foram pagos
+  // Custos apenas dos serviços que já foram pagos no filtro
   const custosServicosPagos = custosServicosFiltrados.filter((c) => c.s.status === "pago");
   const custoPecasPagos = custosServicosPagos.reduce((a, c) => a + c.custoPecas, 0);
   const custoAdicionalPagos = custosServicosPagos.reduce((a, c) => a + c.custoAdicional, 0);
   const custoTotalPagos = custoPecasPagos + custoAdicionalPagos;
 
+  // Custos apenas dos serviços pendentes no filtro
+  const custosServicosPendentes = custosServicosFiltrados.filter((c) => c.s.status !== "pago");
+  const custoPecasPendentes = custosServicosPendentes.reduce((a, c) => a + c.custoPecas, 0);
+  const custoAdicionalPendentes = custosServicosPendentes.reduce((a, c) => a + c.custoAdicional, 0);
+  const custoTotalPendentes = custoPecasPendentes + custoAdicionalPendentes;
+
+  // Custos que correspondem ao status filtrado
+  const custoTotalExibido =
+    filtroStatus === "pago"
+      ? custoTotalPagos
+      : filtroStatus === "pendente"
+      ? custoTotalPendentes
+      : custoTotalPagos;
+
+  const custoPecasExibido =
+    filtroStatus === "pago"
+      ? custoPecasPagos
+      : filtroStatus === "pendente"
+      ? custoPecasPendentes
+      : custoPecasPagos;
+
+  const custoAdicionalExibido =
+    filtroStatus === "pago"
+      ? custoAdicionalPagos
+      : filtroStatus === "pendente"
+      ? custoAdicionalPendentes
+      : custoAdicionalPagos;
+
   // 4. Lucro Real / Projetado
-  // Lucro líquido real dos serviços pagos (recebido - custos das ordens pagas)
+  // Lucro líquido real dos serviços pagos no filtro
   const lucroRealPagos = Math.max(recebido - custoTotalPagos, 0);
-  // Lucro projetado considerando todas as OSs filtradas (faturamento total - custos totais)
+  // Lucro projetado dos serviços pendentes no filtro
+  const lucroProjetadoPendentes = Math.max(valorAReceber - custoTotalPendentes, 0);
+  // Lucro total projetado considerando todas as OSs filtradas
   const lucroTotalProjetado = Math.max(faturamentoTotalFiltrado - custoTotalGeral, 0);
 
-  const lucroExibido = filtroStatus === "pendente" ? lucroTotalProjetado : lucroRealPagos;
+  const lucroExibido =
+    filtroStatus === "pendente" ? lucroProjetadoPendentes : lucroRealPagos;
 
   // 5. Dízimo (10%):
   const dizimoReal = lucroRealPagos * 0.10;
+  const dizimoProjetado = lucroProjetadoPendentes * 0.10;
   const dizimoTotal = lucroTotalProjetado * 0.10;
-  const dizimoExibido = filtroStatus === "pendente" ? dizimoTotal : dizimoReal;
+  const dizimoExibido =
+    filtroStatus === "pendente" ? dizimoProjetado : dizimoReal;
 
   const numAlvoCustoAdicional = Math.max(Number(alvoCustoAdicional || 0), 0);
   const brutoBaseAlvo = alvo
@@ -655,10 +703,11 @@ function FinanceiroPage() {
               <Package className="h-4 w-4 text-rose-500" />
             </div>
             <p className="mt-2 text-xl font-bold tracking-tight text-rose-600 dark:text-rose-400">
-              {formatMoney(filtroStatus === "pago" ? custoTotalPagos : custoTotalGeral)}
+              {formatMoney(custoTotalExibido)}
             </p>
             <p className="text-[11px] text-muted-foreground mt-0.5">
-              Peças: {formatMoney(filtroStatus === "pago" ? custoPecasPagos : custoPecasTotal)} · Despesas: {formatMoney(filtroStatus === "pago" ? custoAdicionalPagos : custoAdicionalTotal)}
+              Peças: {formatMoney(custoPecasExibido)} · Despesas: {formatMoney(custoAdicionalExibido)}
+              {filtroStatus === "todos" && custoTotalPendentes > 0 && ` (c/ pendentes: ${formatMoney(custoTotalGeral)})`}
             </p>
           </div>
 
@@ -676,8 +725,8 @@ function FinanceiroPage() {
               {filtroStatus === "pago"
                 ? `Recebido − Custos (${formatMoney(custoTotalPagos)})`
                 : filtroStatus === "pendente"
-                ? `Previsto − Custos (${formatMoney(custoTotalGeral)})`
-                : `Realizado: ${formatMoney(lucroRealPagos)}${servicosPendentesFiltrados.length > 0 ? ` · Previsto: ${formatMoney(lucroTotalProjetado)}` : ""}`}
+                ? `Previsto − Custos (${formatMoney(custoTotalPendentes)})`
+                : `Realizado: ${formatMoney(lucroRealPagos)}${servicosPendentesFiltrados.length > 0 ? ` · Previsto total: ${formatMoney(lucroTotalProjetado)}` : ""}`}
             </p>
           </div>
 

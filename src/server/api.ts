@@ -402,6 +402,45 @@ const initialMockData: Record<string, any[]> = {
       updated_at: nowIso(),
     },
   ],
+  orcamentos: [
+    {
+      id: "orc-001",
+      numero: 501,
+      cliente_id: "c-001",
+      data: "2026-08-25",
+      validade_dias: 15,
+      descricao: "Instalação de 4 câmeras IP Full HD e central de alarme no perímetro externo.",
+      status: "pendente",
+      horas_mao_obra: 4,
+      valor_mao_obra: 350.0,
+      custo_adicional: 50.0,
+      descricao_custo_adicional: "Deslocamento técnico",
+      incluir_custo_no_total: true,
+      desconto: 50.0,
+      valor_bruto: 1680.0,
+      valor_total: 1680.0,
+      forma_pagamento: "À vista no PIX (5% desc.) ou até 3x no cartão sem juros",
+      observacoes: "Garantia de 1 ano para equipamentos e 90 dias para instalação.",
+      servico_id_gerado: null,
+      aprovado_em: null,
+      created_by: "u-admin-001",
+      created_at: "2026-08-25T10:00:00.000Z",
+    },
+  ],
+  orcamento_itens: [
+    {
+      id: "oi-001",
+      orcamento_id: "orc-001",
+      estoque_id: "e-001",
+      codigo: "CAM-IP4M",
+      produto: "Câmera Bullet IP 4MP Infravermelho 30m Intelbras",
+      unidade: "UN",
+      quantidade: 4,
+      valor_custo: 185.0,
+      valor_venda: 320.0,
+      created_at: "2026-08-25T10:00:00.000Z",
+    },
+  ],
 };
 
 function loadMockDataFromDisk(): Record<string, any[]> {
@@ -418,6 +457,8 @@ function loadMockDataFromDisk(): Record<string, any[]> {
 }
 
 export const mockData: Record<string, any[]> = loadMockDataFromDisk();
+if (!mockData.orcamentos) mockData.orcamentos = [...initialMockData.orcamentos];
+if (!mockData.orcamento_itens) mockData.orcamento_itens = [...initialMockData.orcamento_itens];
 
 export function saveMockDataToDisk() {
   try {
@@ -463,6 +504,21 @@ function executeMockQuery(sql: string, values: any[] = []) {
     if (table1 === "servico_produtos" && table2 === "estoque") {
       return {
         rows: [{ origem: "servico_produtos", coluna: "estoque_id", destino: "estoque", coluna_destino: "id" }],
+        rowCount: 1,
+      };
+    }
+    if (
+      (table1 === "orcamentos" && table2 === "clientes") ||
+      (table1 === "clientes" && table2 === "orcamentos")
+    ) {
+      return {
+        rows: [{ origem: "orcamentos", coluna: "cliente_id", destino: "clientes", coluna_destino: "id" }],
+        rowCount: 1,
+      };
+    }
+    if (table1 === "orcamentos" && table2 === "orcamento_itens") {
+      return {
+        rows: [{ origem: "orcamento_itens", coluna: "orcamento_id", destino: "orcamentos", coluna_destino: "id" }],
         rowCount: 1,
       };
     }
@@ -781,6 +837,13 @@ function executeMockQuery(sql: string, values: any[] = []) {
       });
     }
 
+    if (tableName === "orcamentos" && (trimmed.includes("clientes") || trimmed.includes("rel_clientes"))) {
+      result = result.map((o) => {
+        const c = (mockData.clientes || []).find((cl) => cl.id === o.cliente_id) || null;
+        return { ...o, clientes: c };
+      });
+    }
+
     // Handle ORDER BY
     const orderMatch = trimmed.match(/ORDER\s+BY\s+"?([a-zA-Z0-9_]+)"?(?:\s+(ASC|DESC))?/i);
     if (orderMatch) {
@@ -824,6 +887,19 @@ function executeMockQuery(sql: string, values: any[] = []) {
         newRecord.numero_pedido = maxNum + 1;
       } else {
         newRecord.numero_pedido = Number(newRecord.numero_pedido);
+      }
+    }
+
+    // Auto-generate numeric numero for orcamentos if missing
+    if (tableName === "orcamentos") {
+      if (!newRecord.numero || isNaN(Number(newRecord.numero)) || Number(newRecord.numero) === 0) {
+        const maxNum = (mockData.orcamentos || []).reduce(
+          (max: number, o: any) => Math.max(max, Number(o.numero) || 500),
+          500
+        );
+        newRecord.numero = maxNum + 1;
+      } else {
+        newRecord.numero = Number(newRecord.numero);
       }
     }
 
@@ -938,6 +1014,11 @@ function executeMockQuery(sql: string, values: any[] = []) {
     if (tableName === "notas_fiscais" && deletedIds.length > 0 && mockData.notas_fiscais_itens) {
       mockData.notas_fiscais_itens = mockData.notas_fiscais_itens.filter(
         (nfi: any) => !deletedIds.includes(nfi.nota_fiscal_id)
+      );
+    }
+    if (tableName === "orcamentos" && deletedIds.length > 0 && mockData.orcamento_itens) {
+      mockData.orcamento_itens = mockData.orcamento_itens.filter(
+        (oi: any) => !deletedIds.includes(oi.orcamento_id)
       );
     }
     if (tableName === "servicos" && deletedIds.length > 0) {

@@ -17,6 +17,8 @@ import {
   UserCog,
   LogOut,
   Menu,
+  Calculator,
+  Wrench,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
@@ -39,8 +41,10 @@ const navItems: NavItem[] = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "atendente", "campo", "financeiro"] },
   { to: "/agenda", label: "Agenda", icon: Calendar, roles: ["admin", "atendente", "campo", "financeiro"] },
   { to: "/agendamentos", label: "Agendamentos", icon: CalendarClock, roles: ["admin", "atendente", "campo"] },
+  { to: "/orcamentos", label: "Orçamentos", icon: Calculator, roles: ["admin", "atendente", "financeiro"] },
   { to: "/clientes", label: "Clientes", icon: Users, roles: ["admin", "atendente"] },
   { to: "/prontos", label: "Serviços prontos", icon: ClipboardCheck, roles: ["admin", "atendente", "campo", "financeiro"] },
+  { to: "/servicos", label: "Serviços", icon: Wrench, roles: ["admin", "atendente", "campo", "financeiro"] },
   { to: "/a-cobrar", label: "A cobrar", icon: CircleDollarSign, roles: ["admin", "atendente"] },
   { to: "/financeiro", label: "Financeiro", icon: Wallet, roles: ["admin", "financeiro"] },
   { to: "/caixa", label: "Entradas/Saídas", icon: ArrowLeftRight, roles: ["admin", "financeiro"] },
@@ -125,14 +129,8 @@ function AppLayout() {
         </header>
 
         <main className="flex-1 p-4 md:p-8">
-          {loading && !role ? (
-            <p className="text-sm text-muted-foreground">Carregando...</p>
-          ) : (
-            <>
-              <BoletosHoje />
-              <Outlet />
-            </>
-          )}
+          <BoletosHoje />
+          <Outlet />
         </main>
       </div>
     </div>
