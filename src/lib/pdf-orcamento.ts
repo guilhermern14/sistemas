@@ -2,11 +2,21 @@ import { jsPDF } from "jspdf";
 import { EMPRESA } from "./empresa";
 import { formatMoney } from "./servico";
 import { urlFoto } from "./fotos";
-import { enderecoCompleto, type ClienteResumo, type Servico, type ServicoProduto, type ServicoFoto, type Orcamento, type OrcamentoItem } from "./types";
+import {
+  enderecoCompleto,
+  type ClienteResumo,
+  type Servico,
+  type ServicoProduto,
+  type ServicoFoto,
+  type Orcamento,
+  type OrcamentoItem,
+} from "./types";
 
 const dataBR = (d: Date) => d.toLocaleDateString("pt-BR");
 
-async function carregarImagemBase64(rawUrl: string): Promise<{ data: string; width: number; height: number } | null> {
+async function carregarImagemBase64(
+  rawUrl: string,
+): Promise<{ data: string; width: number; height: number } | null> {
   if (!rawUrl) return null;
   // Normaliza caminhos duplicados se houver
   const url = rawUrl.replace(/\/storage\/v1\/storage\/v1\//g, "/storage/v1/");
@@ -21,7 +31,11 @@ async function carregarImagemBase64(rawUrl: string): Promise<{ data: string; wid
         const ctx = canvas.getContext("2d");
         if (ctx) {
           ctx.drawImage(img, 0, 0);
-          resolve({ data: canvas.toDataURL("image/jpeg", 0.92), width: canvas.width, height: canvas.height });
+          resolve({
+            data: canvas.toDataURL("image/jpeg", 0.92),
+            width: canvas.width,
+            height: canvas.height,
+          });
         } else {
           resolve({ data: url, width: canvas.width, height: canvas.height });
         }
@@ -43,27 +57,33 @@ async function carregarImagemBase64(rawUrl: string): Promise<{ data: string; wid
         reader.readAsDataURL(blob);
       });
 
-      const resImg = await new Promise<{ data: string; width: number; height: number } | null>((resolve) => {
-        const img = new Image();
-        img.onload = () => {
-          try {
-            const canvas = document.createElement("canvas");
-            canvas.width = img.naturalWidth || img.width || 800;
-            canvas.height = img.naturalHeight || img.height || 600;
-            const ctx = canvas.getContext("2d");
-            if (ctx) {
-              ctx.drawImage(img, 0, 0);
-              const jpegData = canvas.toDataURL("image/jpeg", 0.92);
-              return resolve({ data: jpegData, width: canvas.width, height: canvas.height });
-            }
-          } catch {}
-          resolve({ data: dataUrl, width: img.naturalWidth || 800, height: img.naturalHeight || 600 });
-        };
-        img.onerror = () => {
-          resolve({ data: dataUrl, width: 800, height: 600 });
-        };
-        img.src = dataUrl;
-      });
+      const resImg = await new Promise<{ data: string; width: number; height: number } | null>(
+        (resolve) => {
+          const img = new Image();
+          img.onload = () => {
+            try {
+              const canvas = document.createElement("canvas");
+              canvas.width = img.naturalWidth || img.width || 800;
+              canvas.height = img.naturalHeight || img.height || 600;
+              const ctx = canvas.getContext("2d");
+              if (ctx) {
+                ctx.drawImage(img, 0, 0);
+                const jpegData = canvas.toDataURL("image/jpeg", 0.92);
+                return resolve({ data: jpegData, width: canvas.width, height: canvas.height });
+              }
+            } catch {}
+            resolve({
+              data: dataUrl,
+              width: img.naturalWidth || 800,
+              height: img.naturalHeight || 600,
+            });
+          };
+          img.onerror = () => {
+            resolve({ data: dataUrl, width: 800, height: 600 });
+          };
+          img.src = dataUrl;
+        },
+      );
       if (resImg) return resImg;
     }
   } catch (err) {
@@ -106,7 +126,11 @@ export async function gerarOrcamentoPdf(
     const cliente = servico.clientes as ClienteResumo | null | undefined;
     const nomeCliente = cliente?.nome?.trim() || "Cliente";
     const dataArquivo = dataDocumento.toLocaleDateString("pt-BR").replace(/\//g, "-");
-    const nomeArquivo = `${dataArquivo} - ${nomeCliente} - Nascimento Sistemas de Seguranca`.replace(/[\\/:*?"<>|]/g, "-");
+    const nomeArquivo =
+      `${dataArquivo} - ${nomeCliente} - Nascimento Sistemas de Seguranca`.replace(
+        /[\\/:*?"<>|]/g,
+        "-",
+      );
 
     const totalProdutos = produtos.reduce(
       (s, p) => s + Number(p.quantidade) * Number(p.valor_unitario),
@@ -294,12 +318,9 @@ export async function gerarOrcamentoPdf(
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
     doc.setTextColor(148, 163, 184);
-    doc.text(
-      `${EMPRESA.nome} · CNPJ ${EMPRESA.cnpj} · ${EMPRESA.telefone}`,
-      pageWidth / 2,
-      285,
-      { align: "center" },
-    );
+    doc.text(`${EMPRESA.nome} · CNPJ ${EMPRESA.cnpj} · ${EMPRESA.telefone}`, pageWidth / 2, 285, {
+      align: "center",
+    });
 
     // --- Página 2: Fotos ---
     const fotosResolvidas: string[] = [];
@@ -392,12 +413,9 @@ export async function gerarOrcamentoPdf(
       doc.setFont("helvetica", "normal");
       doc.setFontSize(8);
       doc.setTextColor(148, 163, 184);
-      doc.text(
-        `${EMPRESA.nome} · CNPJ ${EMPRESA.cnpj} · ${EMPRESA.telefone}`,
-        pageWidth / 2,
-        285,
-        { align: "center" },
-      );
+      doc.text(`${EMPRESA.nome} · CNPJ ${EMPRESA.cnpj} · ${EMPRESA.telefone}`, pageWidth / 2, 285, {
+        align: "center",
+      });
     }
 
     doc.save(`${nomeArquivo}.pdf`);
@@ -413,7 +431,7 @@ export async function gerarOrcamentoPdf(
  */
 export async function gerarPropostaOrcamentoPdf(
   orcamento: Orcamento,
-  itens: OrcamentoItem[]
+  itens: OrcamentoItem[],
 ): Promise<boolean> {
   try {
     const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
@@ -460,7 +478,12 @@ export async function gerarPropostaOrcamentoPdf(
     doc.setFontSize(8);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(100, 116, 139);
-    doc.text(orcamento.status === "aprovado" ? "STATUS: APROVADO" : "STATUS: PROPOSTA", pageWidth - margin - 29, y + 14, { align: "center" });
+    doc.text(
+      orcamento.status === "aprovado" ? "STATUS: APROVADO" : "STATUS: PROPOSTA",
+      pageWidth - margin - 29,
+      y + 14,
+      { align: "center" },
+    );
 
     y += 22;
     doc.setDrawColor(29, 78, 216);
@@ -633,7 +656,7 @@ export async function gerarPropostaOrcamentoPdf(
     doc.text("Total Materiais / Produtos:", totBoxX, y + 3);
     doc.text(formatMoney(totalProdutos), pageWidth - margin - 2, y + 3, { align: "right" });
 
-    doc.text(`Mão de Obra (${orcamento.horas_mao_obra || 0}h):`, totBoxX, y + 8);
+    doc.text("Mão de Obra:", totBoxX, y + 8);
     doc.text(formatMoney(maoObra), pageWidth - margin - 2, y + 8, { align: "right" });
 
     let currY = y + 13;
@@ -707,8 +730,15 @@ export async function gerarPropostaOrcamentoPdf(
     doc.text(`${EMPRESA.nome}`, margin + colW / 2, signY + 4, { align: "center" });
     doc.text("Responsável Técnico / Comercial", margin + colW / 2, signY + 8, { align: "center" });
 
-    doc.text(`Aceite do Cliente: ${cliente?.nome ?? "Cliente"}`, margin + colW + 20 + colW / 2, signY + 4, { align: "center" });
-    doc.text("Data do Aceite: _____/_____/_________ ", margin + colW + 20 + colW / 2, signY + 8, { align: "center" });
+    doc.text(
+      `Aceite do Cliente: ${cliente?.nome ?? "Cliente"}`,
+      margin + colW + 20 + colW / 2,
+      signY + 4,
+      { align: "center" },
+    );
+    doc.text("Data do Aceite: _____/_____/_________ ", margin + colW + 20 + colW / 2, signY + 8, {
+      align: "center",
+    });
 
     // Rodapé
     doc.setFont("helvetica", "normal");
@@ -718,7 +748,7 @@ export async function gerarPropostaOrcamentoPdf(
       `${EMPRESA.nome} · CNPJ ${EMPRESA.cnpj} · ${EMPRESA.telefone} · ${EMPRESA.email || ""}`,
       pageWidth / 2,
       pageHeight - 8,
-      { align: "center" }
+      { align: "center" },
     );
 
     doc.save(`${nomeArquivo}.pdf`);

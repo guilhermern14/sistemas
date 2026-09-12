@@ -6,12 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import {
   Calculator,
@@ -28,6 +23,7 @@ import {
   Calendar,
   User,
   ArrowRight,
+  Pencil,
 } from "lucide-react";
 import { NovoOrcamentoDialog } from "@/components/NovoOrcamentoDialog";
 import { AprovarOrcamentoDialog } from "@/components/AprovarOrcamentoDialog";
@@ -53,6 +49,7 @@ function OrcamentosPage() {
   const { role } = useAuth();
 
   const [dialogNovoAberto, setDialogNovoAberto] = useState(false);
+  const [orcamentoParaEditar, setOrcamentoParaEditar] = useState<Orcamento | null>(null);
   const [orcamentoParaAprovar, setOrcamentoParaAprovar] = useState<Orcamento | null>(null);
   const [orcamentoParaVer, setOrcamentoParaVer] = useState<Orcamento | null>(null);
   const [orcamentoParaExcluir, setOrcamentoParaExcluir] = useState<string | null>(null);
@@ -67,10 +64,12 @@ function OrcamentosPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("orcamentos")
-        .select(`
+        .select(
+          `
           *,
           clientes:cliente_id (id, nome, telefone, endereco, bairro, cidade)
-        `)
+        `,
+        )
         .order("created_at", { ascending: false });
 
       if (error) throw error;
@@ -185,7 +184,8 @@ function OrcamentosPage() {
             Orçamentos
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Crie propostas comerciais com produtos do estoque, emita o PDF para o cliente e aprove orçamentos para agendamento.
+            Crie propostas comerciais com produtos do estoque, emita o PDF para o cliente e aprove
+            orçamentos para agendamento.
           </p>
         </div>
 
@@ -218,7 +218,9 @@ function OrcamentosPage() {
             <div>
               <div className="text-xs text-amber-600 font-medium">Pendentes (Em Aberto)</div>
               <div className="text-2xl font-bold text-amber-700 mt-1">{stats.qtdPendentes}</div>
-              <div className="text-[11px] text-slate-400 mt-0.5">{formatMoney(stats.valorPendente)}</div>
+              <div className="text-[11px] text-slate-400 mt-0.5">
+                {formatMoney(stats.valorPendente)}
+              </div>
             </div>
             <div className="p-3 bg-amber-50 text-amber-600 rounded-xl">
               <Clock className="w-5 h-5" />
@@ -231,7 +233,9 @@ function OrcamentosPage() {
             <div>
               <div className="text-xs text-emerald-600 font-medium">Aprovados</div>
               <div className="text-2xl font-bold text-emerald-700 mt-1">{stats.qtdAprovados}</div>
-              <div className="text-[11px] text-slate-400 mt-0.5">{formatMoney(stats.valorAprovado)}</div>
+              <div className="text-[11px] text-slate-400 mt-0.5">
+                {formatMoney(stats.valorAprovado)}
+              </div>
             </div>
             <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl">
               <CheckCircle2 className="w-5 h-5" />
@@ -320,7 +324,9 @@ function OrcamentosPage() {
         ) : orcamentosFiltrados.length === 0 ? (
           <div className="p-12 text-center space-y-3">
             <Calculator className="w-10 h-10 text-slate-300 mx-auto" />
-            <div className="text-base font-semibold text-slate-700">Nenhum orçamento encontrado</div>
+            <div className="text-base font-semibold text-slate-700">
+              Nenhum orçamento encontrado
+            </div>
             <p className="text-xs text-slate-400 max-w-sm mx-auto">
               {busca || filtroStatus !== "todos"
                 ? "Nenhum orçamento corresponde aos filtros selecionados."
@@ -347,7 +353,7 @@ function OrcamentosPage() {
                   <th className="p-3.5 text-center hidden lg:table-cell">Mão de Obra</th>
                   <th className="p-3.5 text-right">Valor Total</th>
                   <th className="p-3.5 text-center w-28">Status</th>
-                  <th className="p-3.5 text-right w-64">Ações</th>
+                  <th className="p-3.5 text-right w-72">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -431,7 +437,7 @@ function OrcamentosPage() {
                         )}
                       </td>
 
-                      {/* Ações: PDF, APROVADO, Detalhes, Excluir */}
+                      {/* Ações: PDF, Editar, APROVADO, Detalhes, Excluir */}
                       <td className="p-3.5 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           {/* Botão Baixar PDF */}
@@ -446,6 +452,20 @@ function OrcamentosPage() {
                           >
                             <Download className="w-3.5 h-3.5" />
                             <span className="hidden sm:inline">PDF</span>
+                          </Button>
+
+                          {/* Botão Editar Orçamento */}
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setOrcamentoParaEditar(orc)}
+                            className="h-8 px-2.5 text-xs font-semibold text-slate-700 bg-slate-50/80 border-slate-200 hover:bg-slate-100 gap-1"
+                            title="Editar este orçamento"
+                            id={`btn-editar-orcamento-${orc.id}`}
+                          >
+                            <Pencil className="w-3.5 h-3.5 text-slate-600" />
+                            <span className="hidden md:inline">Editar</span>
                           </Button>
 
                           {/* BOTÃO 'APROVADO' SOLICITADO PELO USUÁRIO */}
@@ -510,11 +530,17 @@ function OrcamentosPage() {
         )}
       </div>
 
-      {/* Modal Criar Novo Orçamento */}
-      <NovoOrcamentoDialog
-        open={dialogNovoAberto}
-        onClose={() => setDialogNovoAberto(false)}
-      />
+      {/* Modal Criar Novo Orçamento ou Editar Existente */}
+      {(dialogNovoAberto || orcamentoParaEditar) && (
+        <NovoOrcamentoDialog
+          open={dialogNovoAberto || !!orcamentoParaEditar}
+          orcamentoParaEditar={orcamentoParaEditar}
+          onClose={() => {
+            setDialogNovoAberto(false);
+            setOrcamentoParaEditar(null);
+          }}
+        />
+      )}
 
       {/* Modal Aprovar Orçamento (Agendamento) */}
       {orcamentoParaAprovar && (
@@ -537,7 +563,9 @@ function OrcamentosPage() {
                   </DialogTitle>
                   <p className="text-xs text-slate-500 mt-0.5">
                     Cliente: <strong>{orcamentoParaVer.clientes?.nome}</strong> · Criado em{" "}
-                    {new Date(orcamentoParaVer.data || orcamentoParaVer.created_at).toLocaleDateString("pt-BR")}
+                    {new Date(
+                      orcamentoParaVer.data || orcamentoParaVer.created_at,
+                    ).toLocaleDateString("pt-BR")}
                   </p>
                 </div>
                 <Badge
@@ -583,8 +611,12 @@ function OrcamentosPage() {
                             <span className="text-[10px] text-slate-400 ml-1.5">({it.codigo})</span>
                           )}
                         </td>
-                        <td className="p-2.5 text-center">{it.quantidade} {it.unidade}</td>
-                        <td className="p-2.5 text-right text-blue-700 font-medium">{formatMoney(it.valor_venda)}</td>
+                        <td className="p-2.5 text-center">
+                          {it.quantidade} {it.unidade}
+                        </td>
+                        <td className="p-2.5 text-right text-blue-700 font-medium">
+                          {formatMoney(it.valor_venda)}
+                        </td>
                         <td className="p-2.5 text-right font-semibold text-slate-900">
                           {formatMoney((it.quantidade || 0) * (it.valor_venda || 0))}
                         </td>
@@ -597,19 +629,27 @@ function OrcamentosPage() {
               {/* Totais */}
               <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-1 text-slate-600">
                 <div className="flex justify-between">
-                  <span>Mão de Obra ({orcamentoParaVer.horas_mao_obra}h):</span>
-                  <span className="font-medium text-slate-800">{formatMoney(orcamentoParaVer.valor_mao_obra)}</span>
+                  <span>Mão de Obra:</span>
+                  <span className="font-medium text-slate-800">
+                    {formatMoney(orcamentoParaVer.valor_mao_obra)}
+                  </span>
                 </div>
                 {Number(orcamentoParaVer.custo_adicional || 0) > 0 && (
                   <div className="flex justify-between">
-                    <span>{orcamentoParaVer.descricao_custo_adicional || "Despesas adicionais"}:</span>
-                    <span className="font-medium text-slate-800">{formatMoney(orcamentoParaVer.custo_adicional)}</span>
+                    <span>
+                      {orcamentoParaVer.descricao_custo_adicional || "Despesas adicionais"}:
+                    </span>
+                    <span className="font-medium text-slate-800">
+                      {formatMoney(orcamentoParaVer.custo_adicional)}
+                    </span>
                   </div>
                 )}
                 {Number(orcamentoParaVer.desconto || 0) > 0 && (
                   <div className="flex justify-between text-red-600">
                     <span>Desconto comercial:</span>
-                    <span className="font-semibold">- {formatMoney(orcamentoParaVer.desconto)}</span>
+                    <span className="font-semibold">
+                      - {formatMoney(orcamentoParaVer.desconto)}
+                    </span>
                   </div>
                 )}
                 <div className="flex justify-between pt-1 border-t border-slate-200 text-sm font-bold text-slate-900">
@@ -626,6 +666,19 @@ function OrcamentosPage() {
             </div>
 
             <div className="flex justify-end gap-2 pt-4 border-t border-slate-200">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const orc = orcamentoParaVer;
+                  setOrcamentoParaVer(null);
+                  setOrcamentoParaEditar(orc);
+                }}
+                className="gap-1 text-slate-700 border-slate-300 hover:bg-slate-100"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                Editar Orçamento
+              </Button>
               <Button
                 variant="outline"
                 size="sm"

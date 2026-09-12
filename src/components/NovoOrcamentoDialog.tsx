@@ -1,18 +1,24 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { Search, Plus, Trash2, Calculator, PackagePlus } from "lucide-react";
+import { Search, Plus, Trash2, Calculator, PackagePlus, Pencil, Loader2 } from "lucide-react";
 import { formatMoney } from "@/lib/servico";
 import { calcMaoObra } from "@/lib/empresa";
 import { useAuth } from "@/hooks/useAuth";
-import type { ClienteResumo, ProdutoEstoque } from "@/lib/types";
+import type { ClienteResumo, ProdutoEstoque, Orcamento, OrcamentoItem } from "@/lib/types";
 
 export type OrcamentoItemForm = {
   estoque_id: string | null;
@@ -28,21 +34,28 @@ export function NovoOrcamentoDialog({
   open,
   onClose,
   onSuccess,
+  orcamentoParaEditar = null,
 }: {
   open: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  orcamentoParaEditar?: Orcamento | null;
 }) {
   const qc = useQueryClient();
   const { user } = useAuth();
+  const isEditing = !!orcamentoParaEditar;
 
   const [clienteId, setClienteId] = useState("");
   const [buscaCliente, setBuscaCliente] = useState("");
   const [dataOrcamento, setDataOrcamento] = useState(() => new Date().toISOString().slice(0, 10));
   const [validadeDias, setValidadeDias] = useState("15");
   const [descricao, setDescricao] = useState("");
-  const [formaPagamento, setFormaPagamento] = useState("À vista no PIX com 5% de desconto ou até 3x no cartão sem juros");
-  const [observacoes, setObservacoes] = useState("Garantia de 1 ano para equipamentos e 90 dias para instalação técnica.");
+  const [formaPagamento, setFormaPagamento] = useState(
+    "À vista no PIX com 5% de desconto ou até 3x no cartão sem juros",
+  );
+  const [observacoes, setObservacoes] = useState(
+    "Garantia de 1 ano para equipamentos e 90 dias para instalação técnica.",
+  );
 
   // Itens do orçamento
   const [itens, setItens] = useState<OrcamentoItemForm[]>([]);
@@ -62,6 +75,95 @@ export function NovoOrcamentoDialog({
   const [descCustoAdicional, setDescCustoAdicional] = useState("Deslocamento técnico");
   const [incluirCustoNoTotal, setIncluirCustoNoTotal] = useState(true);
   const [desconto, setDesconto] = useState("");
+
+  // Buscar itens já gravados caso estejamos em modo de edição
+  const { data: itensExistentes, isLoading: carregandoItens } = useQuery({
+    queryKey: ["orcamento-itens-editar", orcamentoParaEditar?.id],
+    queryFn: async () => {
+      if (!orcamentoParaEditar?.id) return [];
+      const { data, error } = await supabase
+        .from("orcamento_itens")
+        .select("*")
+        .eq("orcamento_id", orcamentoParaEditar.id)
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return (data || []) as OrcamentoItem[];
+    },
+    enabled: open && !!orcamentoParaEditar?.id,
+  });
+
+  // Atualizar/Inicializar o formulário conforme abertura para novo ou edição
+  useEffect(() => {
+    if (!open) return;
+
+    if (orcamentoParaEditar) {
+      setClienteId(orcamentoParaEditar.cliente_id || "");
+      setDataOrcamento(
+        orcamentoParaEditar.data ||
+          orcamentoParaEditar.created_at?.slice(0, 10) ||
+          new Date().toISOString().slice(0, 10),
+      );
+      setValidadeDias(String(orcamentoParaEditar.validade_dias || 15));
+      setDescricao(orcamentoParaEditar.descricao || "");
+      setFormaPagamento(
+        orcamentoParaEditar.forma_pagamento ||
+          "À vista no PIX com 5% de desconto ou até 3x no cartão sem juros",
+      );
+      setObservacoes(
+        orcamentoParaEditar.observacoes ||
+          "Garantia de 1 ano para equipamentos e 90 dias para instalação técnica.",
+      );
+      setHoras(String(orcamentoParaEditar.horas_mao_obra ?? 0));
+      setValorMaoObra(String(orcamentoParaEditar.valor_mao_obra ?? 0));
+      setMaoObraManual(true);
+      setCustoAdicional(
+        orcamentoParaEditar.custo_adicional ? String(orcamentoParaEditar.custo_adicional) : "",
+      );
+      setDescCustoAdicional(
+        orcamentoParaEditar.descricao_custo_adicional || "Deslocamento técnico",
+      );
+      setIncluirCustoNoTotal(Boolean(orcamentoParaEditar.incluir_custo_no_total ?? true));
+      setDesconto(orcamentoParaEditar.desconto ? String(orcamentoParaEditar.desconto) : "");
+      setBuscaCliente("");
+      setBuscaProduto("");
+      setShowItemAvulso(false);
+    } else {
+      setClienteId("");
+      setDataOrcamento(new Date().toISOString().slice(0, 10));
+      setValidadeDias("15");
+      setDescricao("");
+      setFormaPagamento("À vista no PIX com 5% de desconto ou até 3x no cartão sem juros");
+      setObservacoes("Garantia de 1 ano para equipamentos e 90 dias para instalação técnica.");
+      setItens([]);
+      setBuscaCliente("");
+      setBuscaProduto("");
+      setShowItemAvulso(false);
+      setHoras("4");
+      setValorMaoObra(String(calcMaoObra(4)));
+      setMaoObraManual(false);
+      setCustoAdicional("");
+      setDescCustoAdicional("Deslocamento técnico");
+      setIncluirCustoNoTotal(true);
+      setDesconto("");
+    }
+  }, [open, orcamentoParaEditar]);
+
+  // Sincronizar itens existentes se estiver em modo de edição
+  useEffect(() => {
+    if (open && orcamentoParaEditar && itensExistentes) {
+      setItens(
+        itensExistentes.map((it) => ({
+          estoque_id: it.estoque_id || null,
+          codigo: it.codigo || null,
+          produto: it.produto,
+          unidade: it.unidade || "UN",
+          quantidade: Number(it.quantidade) || 1,
+          valor_custo: Number(it.valor_custo) || 0,
+          valor_venda: Number(it.valor_venda) || 0,
+        })),
+      );
+    }
+  }, [open, orcamentoParaEditar, itensExistentes]);
 
   // Fetch Clientes
   const { data: clientes = [] } = useQuery({
@@ -95,7 +197,7 @@ export function NovoOrcamentoDialog({
     return estoque.filter(
       (p) =>
         p.produto.toLowerCase().includes(term) ||
-        (p.codigo && p.codigo.toLowerCase().includes(term))
+        (p.codigo && p.codigo.toLowerCase().includes(term)),
     );
   }, [buscaProduto, estoque]);
 
@@ -107,13 +209,13 @@ export function NovoOrcamentoDialog({
       (c) =>
         c.nome.toLowerCase().includes(term) ||
         (c.telefone && c.telefone.toLowerCase().includes(term)) ||
-        (c.bairro && c.bairro.toLowerCase().includes(term))
+        (c.bairro && c.bairro.toLowerCase().includes(term)),
     );
   }, [buscaCliente, clientes]);
 
   const clienteSelecionado = useMemo(
     () => clientes.find((c) => c.id === clienteId) || null,
-    [clientes, clienteId]
+    [clientes, clienteId],
   );
 
   // Adicionar produto do estoque com preço de venda padrão, mas editável!
@@ -121,9 +223,7 @@ export function NovoOrcamentoDialog({
     const jaExiste = itens.find((i) => i.estoque_id === prod.id);
     if (jaExiste) {
       setItens((prev) =>
-        prev.map((i) =>
-          i.estoque_id === prod.id ? { ...i, quantidade: i.quantidade + 1 } : i
-        )
+        prev.map((i) => (i.estoque_id === prod.id ? { ...i, quantidade: i.quantidade + 1 } : i)),
       );
       toast.info(`Quantidade de "${prod.produto}" aumentada.`);
     } else {
@@ -177,7 +277,7 @@ export function NovoOrcamentoDialog({
   const atualizarItem = (
     index: number,
     campo: "quantidade" | "valor_venda" | "produto",
-    valor: any
+    valor: any,
   ) => {
     setItens((prev) => {
       const copy = [...prev];
@@ -203,7 +303,7 @@ export function NovoOrcamentoDialog({
   const totalProdutos = useMemo(() => {
     return itens.reduce(
       (acc, item) => acc + (Number(item.quantidade) || 0) * (Number(item.valor_venda) || 0),
-      0
+      0,
     );
   }, [itens]);
 
@@ -214,7 +314,7 @@ export function NovoOrcamentoDialog({
   const totalBruto = totalProdutos + numMaoObra + (incluirCustoNoTotal ? numCustoAdicional : 0);
   const totalGeral = Math.max(0, totalBruto - numDesconto);
 
-  // Mutation para criar o orçamento
+  // Mutation para criar ou editar o orçamento
   const mutation = useMutation({
     mutationFn: async () => {
       if (!clienteId) {
@@ -223,77 +323,149 @@ export function NovoOrcamentoDialog({
 
       const hNum = parseFloat(horas.replace(",", ".")) || 0;
 
-      // 1. Inserir orçamento
-      const { data: orcamentoCriado, error: errOrc } = await supabase
-        .from("orcamentos")
-        .insert({
-          cliente_id: clienteId,
-          data: dataOrcamento,
-          validade_dias: parseInt(validadeDias, 10) || 15,
-          descricao: descricao.trim() || null,
-          status: "pendente",
-          horas_mao_obra: hNum,
-          valor_mao_obra: numMaoObra,
-          custo_adicional: numCustoAdicional > 0 ? numCustoAdicional : null,
-          descricao_custo_adicional: numCustoAdicional > 0 ? descCustoAdicional : null,
-          incluir_custo_no_total: incluirCustoNoTotal,
-          desconto: numDesconto,
-          valor_bruto: totalBruto,
-          valor_total: totalGeral,
-          forma_pagamento: formaPagamento.trim() || null,
-          observacoes: observacoes.trim() || null,
-          created_by: user?.id || null,
-        } as any)
-        .select()
-        .single();
+      if (isEditing && orcamentoParaEditar?.id) {
+        // 1. Atualizar orçamento existente
+        const { data: orcamentoAtualizado, error: errOrc } = await supabase
+          .from("orcamentos")
+          .update({
+            cliente_id: clienteId,
+            data: dataOrcamento,
+            validade_dias: parseInt(validadeDias, 10) || 15,
+            descricao: descricao.trim() || null,
+            horas_mao_obra: hNum,
+            valor_mao_obra: numMaoObra,
+            custo_adicional: numCustoAdicional > 0 ? numCustoAdicional : null,
+            descricao_custo_adicional: numCustoAdicional > 0 ? descCustoAdicional : null,
+            incluir_custo_no_total: incluirCustoNoTotal,
+            desconto: numDesconto,
+            valor_bruto: totalBruto,
+            valor_total: totalGeral,
+            forma_pagamento: formaPagamento.trim() || null,
+            observacoes: observacoes.trim() || null,
+          } as any)
+          .eq("id", orcamentoParaEditar.id)
+          .select()
+          .single();
 
-      if (errOrc) throw errOrc;
+        if (errOrc) throw errOrc;
 
-      // 2. Inserir itens do orçamento
-      if (itens.length > 0 && orcamentoCriado?.id) {
-        const itensToInsert = itens.map((it) => ({
-          orcamento_id: orcamentoCriado.id,
-          estoque_id: it.estoque_id,
-          codigo: it.codigo,
-          produto: it.produto,
-          unidade: it.unidade || "UN",
-          quantidade: Number(it.quantidade) || 1,
-          valor_custo: Number(it.valor_custo) || 0,
-          valor_venda: Number(it.valor_venda) || 0,
-        }));
-
-        const { error: errItens } = await supabase
+        // 2. Substituir itens do orçamento
+        const { error: errDel } = await supabase
           .from("orcamento_itens")
-          .insert(itensToInsert as any);
+          .delete()
+          .eq("orcamento_id", orcamentoParaEditar.id);
 
-        if (errItens) throw errItens;
+        if (errDel) throw errDel;
+
+        if (itens.length > 0) {
+          const itensToInsert = itens.map((it) => ({
+            orcamento_id: orcamentoParaEditar.id,
+            estoque_id: it.estoque_id,
+            codigo: it.codigo,
+            produto: it.produto,
+            unidade: it.unidade || "UN",
+            quantidade: Number(it.quantidade) || 1,
+            valor_custo: Number(it.valor_custo) || 0,
+            valor_venda: Number(it.valor_venda) || 0,
+          }));
+
+          const { error: errItens } = await supabase
+            .from("orcamento_itens")
+            .insert(itensToInsert as any);
+
+          if (errItens) throw errItens;
+        }
+
+        return orcamentoAtualizado;
+      } else {
+        // 1. Inserir novo orçamento
+        const { data: orcamentoCriado, error: errOrc } = await supabase
+          .from("orcamentos")
+          .insert({
+            cliente_id: clienteId,
+            data: dataOrcamento,
+            validade_dias: parseInt(validadeDias, 10) || 15,
+            descricao: descricao.trim() || null,
+            status: "pendente",
+            horas_mao_obra: hNum,
+            valor_mao_obra: numMaoObra,
+            custo_adicional: numCustoAdicional > 0 ? numCustoAdicional : null,
+            descricao_custo_adicional: numCustoAdicional > 0 ? descCustoAdicional : null,
+            incluir_custo_no_total: incluirCustoNoTotal,
+            desconto: numDesconto,
+            valor_bruto: totalBruto,
+            valor_total: totalGeral,
+            forma_pagamento: formaPagamento.trim() || null,
+            observacoes: observacoes.trim() || null,
+            created_by: user?.id || null,
+          } as any)
+          .select()
+          .single();
+
+        if (errOrc) throw errOrc;
+
+        // 2. Inserir itens do orçamento
+        if (itens.length > 0 && orcamentoCriado?.id) {
+          const itensToInsert = itens.map((it) => ({
+            orcamento_id: orcamentoCriado.id,
+            estoque_id: it.estoque_id,
+            codigo: it.codigo,
+            produto: it.produto,
+            unidade: it.unidade || "UN",
+            quantidade: Number(it.quantidade) || 1,
+            valor_custo: Number(it.valor_custo) || 0,
+            valor_venda: Number(it.valor_venda) || 0,
+          }));
+
+          const { error: errItens } = await supabase
+            .from("orcamento_itens")
+            .insert(itensToInsert as any);
+
+          if (errItens) throw errItens;
+        }
+
+        return orcamentoCriado;
       }
-
-      return orcamentoCriado;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["orcamentos"] });
-      toast.success("Orçamento criado com sucesso!");
+      qc.invalidateQueries({ queryKey: ["orcamento-itens"] });
+      qc.invalidateQueries({ queryKey: ["orcamento-itens-detalhe"] });
+      qc.invalidateQueries({ queryKey: ["orcamento-itens-editar"] });
+      toast.success(
+        isEditing ? "Orçamento atualizado com sucesso!" : "Orçamento criado com sucesso!",
+      );
       onClose();
       if (onSuccess) onSuccess();
     },
     onError: (err: any) => {
-      toast.error(`Erro ao criar orçamento: ${err.message || err}`);
+      toast.error(`Erro ao salvar orçamento: ${err.message || err}`);
     },
   });
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto p-6" id="novo-orcamento-dialog">
+      <DialogContent
+        className="max-w-4xl max-h-[92vh] overflow-y-auto p-6"
+        id="novo-orcamento-dialog"
+      >
         <DialogHeader>
           <div className="flex items-center gap-2">
-            <div className="p-2 bg-blue-100 text-blue-700 rounded-lg">
-              <Calculator className="w-5 h-5" />
+            <div
+              className={`p-2 rounded-lg ${isEditing ? "bg-amber-100 text-amber-700" : "bg-blue-100 text-blue-700"}`}
+            >
+              {isEditing ? <Pencil className="w-5 h-5" /> : <Calculator className="w-5 h-5" />}
             </div>
             <div>
-              <DialogTitle className="text-xl font-bold text-slate-900">Novo Orçamento Comercial</DialogTitle>
+              <DialogTitle className="text-xl font-bold text-slate-900">
+                {isEditing
+                  ? `Editar Orçamento #${orcamentoParaEditar?.numero}`
+                  : "Novo Orçamento Comercial"}
+              </DialogTitle>
               <p className="text-xs text-slate-500 mt-0.5">
-                Monte a proposta para o cliente, selecione produtos do estoque e edite os valores de venda livremente.
+                {isEditing
+                  ? "Modifique os produtos, valores de venda, mão de obra e condições desta proposta comercial."
+                  : "Monte a proposta para o cliente, selecione produtos do estoque e edite os valores de venda livremente."}
               </p>
             </div>
           </div>
@@ -326,7 +498,8 @@ export function NovoOrcamentoDialog({
                     <option value="">-- Selecione o Cliente --</option>
                     {clientesFiltrados.map((c) => (
                       <option key={c.id} value={c.id}>
-                        {c.nome} {c.telefone ? `(${c.telefone})` : ""} {c.bairro ? `- ${c.bairro}` : ""}
+                        {c.nome} {c.telefone ? `(${c.telefone})` : ""}{" "}
+                        {c.bairro ? `- ${c.bairro}` : ""}
                       </option>
                     ))}
                   </select>
@@ -395,7 +568,10 @@ export function NovoOrcamentoDialog({
                 </h3>
                 <p className="text-xs text-slate-500">
                   Busque os produtos no estoque. O valor de venda padrão é carregado, mas você pode{" "}
-                  <strong className="text-blue-600">alterar o valor de venda de cada produto</strong> livremente.
+                  <strong className="text-blue-600">
+                    alterar o valor de venda de cada produto
+                  </strong>{" "}
+                  livremente.
                 </p>
               </div>
 
@@ -517,10 +693,20 @@ export function NovoOrcamentoDialog({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {itens.length === 0 ? (
+                    {carregandoItens ? (
+                      <tr>
+                        <td colSpan={5} className="p-6 text-center text-slate-500 text-xs">
+                          <div className="flex items-center justify-center gap-2">
+                            <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+                            <span>Carregando itens do orçamento...</span>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : itens.length === 0 ? (
                       <tr>
                         <td colSpan={5} className="p-6 text-center text-slate-400 text-xs">
-                          Nenhum produto adicionado ao orçamento ainda. Busque um produto acima para incluir.
+                          Nenhum produto adicionado ao orçamento ainda. Busque um produto acima para
+                          incluir.
                         </td>
                       </tr>
                     ) : (
@@ -567,7 +753,11 @@ export function NovoOrcamentoDialog({
                                   step="0.01"
                                   value={item.valor_venda}
                                   onChange={(e) =>
-                                    atualizarItem(idx, "valor_venda", parseFloat(e.target.value) || 0)
+                                    atualizarItem(
+                                      idx,
+                                      "valor_venda",
+                                      parseFloat(e.target.value) || 0,
+                                    )
                                   }
                                   className="h-8 w-28 text-right text-xs bg-white font-semibold text-blue-700 border-blue-200 focus:border-blue-500 focus:ring-blue-500"
                                   title="Valor de venda editável para este orçamento"
@@ -753,13 +943,27 @@ export function NovoOrcamentoDialog({
           {/* Box de Resumo Financeiro */}
           <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="space-y-1 text-xs text-slate-600">
-              <div>Materiais / Produtos: <span className="font-semibold text-slate-800">{formatMoney(totalProdutos)}</span></div>
-              <div>Mão de obra ({horas}h): <span className="font-semibold text-slate-800">{formatMoney(numMaoObra)}</span></div>
+              <div>
+                Materiais / Produtos:{" "}
+                <span className="font-semibold text-slate-800">{formatMoney(totalProdutos)}</span>
+              </div>
+              <div>
+                Mão de obra ({horas}h):{" "}
+                <span className="font-semibold text-slate-800">{formatMoney(numMaoObra)}</span>
+              </div>
               {numCustoAdicional > 0 && incluirCustoNoTotal && (
-                <div>Despesas adicionais: <span className="font-semibold text-slate-800">{formatMoney(numCustoAdicional)}</span></div>
+                <div>
+                  Despesas adicionais:{" "}
+                  <span className="font-semibold text-slate-800">
+                    {formatMoney(numCustoAdicional)}
+                  </span>
+                </div>
               )}
               {numDesconto > 0 && (
-                <div className="text-red-600">Desconto aplicado: <span className="font-semibold">- {formatMoney(numDesconto)}</span></div>
+                <div className="text-red-600">
+                  Desconto aplicado:{" "}
+                  <span className="font-semibold">- {formatMoney(numDesconto)}</span>
+                </div>
               )}
             </div>
 
@@ -781,11 +985,15 @@ export function NovoOrcamentoDialog({
           <Button
             type="button"
             onClick={() => mutation.mutate()}
-            disabled={mutation.isPending || !clienteId}
-            className="bg-blue-600 hover:bg-blue-700 text-white gap-2 font-semibold"
+            disabled={mutation.isPending || !clienteId || carregandoItens}
+            className={`text-white gap-2 font-semibold ${isEditing ? "bg-amber-600 hover:bg-amber-700" : "bg-blue-600 hover:bg-blue-700"}`}
             id="salvar-orcamento-btn"
           >
-            {mutation.isPending ? "Salvando..." : "Salvar e Gerar Orçamento"}
+            {mutation.isPending
+              ? "Salvando..."
+              : isEditing
+                ? "Salvar Alterações"
+                : "Salvar e Gerar Orçamento"}
           </Button>
         </DialogFooter>
       </DialogContent>
