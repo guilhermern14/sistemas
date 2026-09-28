@@ -75,7 +75,9 @@ function ClientesPage() {
       setForm(vazio);
       setOpen(false);
       void qc.invalidateQueries({ queryKey: ["clientes"] });
+      void qc.invalidateQueries({ queryKey: ["clientes-select"] });
       void qc.invalidateQueries({ queryKey: ["clientes-simples"] });
+      void qc.invalidateQueries({ queryKey: ["orcamentos"] });
     },
     onError: () => toast.error("Não foi possível cadastrar o cliente"),
   });
@@ -91,7 +93,9 @@ function ClientesPage() {
       setEditando(null);
       setOpen(false);
       void qc.invalidateQueries({ queryKey: ["clientes"] });
+      void qc.invalidateQueries({ queryKey: ["clientes-select"] });
       void qc.invalidateQueries({ queryKey: ["clientes-simples"] });
+      void qc.invalidateQueries({ queryKey: ["orcamentos"] });
     },
     onError: () => toast.error("Não foi possível atualizar o cliente"),
   });
@@ -104,8 +108,10 @@ function ClientesPage() {
     onSuccess: () => {
       toast.success("Cliente excluído");
       void qc.invalidateQueries({ queryKey: ["clientes"] });
+      void qc.invalidateQueries({ queryKey: ["clientes-select"] });
       void qc.invalidateQueries({ queryKey: ["clientes-simples"] });
       void qc.invalidateQueries({ queryKey: ["agendamentos"] });
+      void qc.invalidateQueries({ queryKey: ["orcamentos"] });
     },
     onError: () => toast.error("Não foi possível excluir o cliente. Verifique se você tem permissão."),
   });

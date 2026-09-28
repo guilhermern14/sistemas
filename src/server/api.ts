@@ -852,9 +852,13 @@ function executeMockQuery(sql: string, values: any[] = []) {
       result.sort((a, b) => {
         const valA = a[orderCol] ?? "";
         const valB = b[orderCol] ?? "";
-        if (valA < valB) return isDesc ? 1 : -1;
-        if (valA > valB) return isDesc ? -1 : 1;
-        return 0;
+        let cmp = 0;
+        if (typeof valA === "number" && typeof valB === "number") {
+          cmp = valA - valB;
+        } else {
+          cmp = String(valA).localeCompare(String(valB), "pt-BR", { sensitivity: "base", numeric: true });
+        }
+        return isDesc ? -cmp : cmp;
       });
     }
 

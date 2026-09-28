@@ -76,6 +76,19 @@ export function NovoOrcamentoDialog({
   const [incluirCustoNoTotal, setIncluirCustoNoTotal] = useState(true);
   const [desconto, setDesconto] = useState("");
 
+  // Modal para cadastro rápido de novo cliente diretamente nesta tela
+  const [showNovoClienteModal, setShowNovoClienteModal] = useState(false);
+  const [novoClienteForm, setNovoClienteForm] = useState({
+    nome: "",
+    telefone: "",
+    cpf_cnpj: "",
+    endereco: "",
+    numero: "",
+    bairro: "",
+    cidade: "",
+  });
+  const [salvandoNovoCliente, setSalvandoNovoCliente] = useState(false);
+
   // Buscar itens já gravados caso estejamos em modo de edição
   const { data: itensExistentes, isLoading: carregandoItens } = useQuery({
     queryKey: ["orcamento-itens-editar", orcamentoParaEditar?.id],
@@ -166,7 +179,7 @@ export function NovoOrcamentoDialog({
   }, [open, orcamentoParaEditar, itensExistentes]);
 
   // Fetch Clientes
-  const { data: clientes = [] } = useQuery({
+  const { data: clientes = [], refetch: refetchClientes } = useQuery({
     queryKey: ["clientes-select"],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -174,10 +187,19 @@ export function NovoOrcamentoDialog({
         .select("id, nome, telefone, endereco, bairro, cidade")
         .order("nome");
       if (error) throw error;
-      return (data || []) as ClienteResumo[];
+      return (data || []) as (ClienteResumo & { id: string })[];
     },
     enabled: open,
+    staleTime: 0,
+    refetchOnMount: "always",
   });
+
+  // Re-buscar clientes sempre que a modal de orçamento for aberta
+  useEffect(() => {
+    if (open) {
+      void refetchClientes();
+    }
+  }, [open, refetchClientes]);
 
   // Fetch Estoque
   const { data: estoque = [] } = useQuery({
@@ -201,15 +223,17 @@ export function NovoOrcamentoDialog({
     );
   }, [buscaProduto, estoque]);
 
-  // Filtragem de clientes
+  // Filtragem de clientes (sem truncar lista para não esconder clientes novos!)
   const clientesFiltrados = useMemo(() => {
-    if (!buscaCliente.trim()) return clientes.slice(0, 30);
-    const term = buscaCliente.toLowerCase();
+    if (!buscaCliente.trim()) return clientes;
+    const term = buscaCliente.toLowerCase().trim();
     return clientes.filter(
       (c) =>
-        c.nome.toLowerCase().includes(term) ||
+        (c.nome && c.nome.toLowerCase().includes(term)) ||
         (c.telefone && c.telefone.toLowerCase().includes(term)) ||
-        (c.bairro && c.bairro.toLowerCase().includes(term)),
+        (c.bairro && c.bairro.toLowerCase().includes(term)) ||
+        (c.cidade && c.cidade.toLowerCase().includes(term)) ||
+        (c.endereco && c.endereco.toLowerCase().includes(term)),
     );
   }, [buscaCliente, clientes]);
 
@@ -313,6 +337,57 @@ export function NovoOrcamentoDialog({
 
   const totalBruto = totalProdutos + numMaoObra + (incluirCustoNoTotal ? numCustoAdicional : 0);
   const totalGeral = Math.max(0, totalBruto - numDesconto);
+
+  // Ação para salvar novo cliente rápido e selecioná-lo imediatamente
+  const handleSalvarNovoCliente = async () => {
+    if (!novoClienteForm.nome.trim()) {
+      toast.error("Informe o nome completo do cliente.");
+      return;
+    }
+    setSalvandoNovoCliente(true);
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const { data, error } = await supabase
+        .from("clientes")
+        .insert({
+          ...novoClienteForm,
+          created_by: userData.user?.id,
+        } as any)
+        .select()
+        .single();
+      if (error) throw error;
+
+      toast.success(`Cliente "${novoClienteForm.nome}" cadastrado com sucesso!`);
+      await qc.invalidateQueries({ queryKey: ["clientes"] });
+      await qc.invalidateQueries({ queryKey: ["clientes-select"] });
+      await qc.invalidateQueries({ queryKey: ["clientes-simples"] });
+      const refetched = await refetchClientes();
+
+      if (data?.id) {
+        setClienteId(data.id);
+      } else if (refetched.data) {
+        const found = refetched.data.find(
+          (c: any) => c.nome.toLowerCase() === novoClienteForm.nome.trim().toLowerCase(),
+        );
+        if (found) setClienteId(found.id);
+      }
+
+      setShowNovoClienteModal(false);
+      setNovoClienteForm({
+        nome: "",
+        telefone: "",
+        cpf_cnpj: "",
+        endereco: "",
+        numero: "",
+        bairro: "",
+        cidade: "",
+      });
+    } catch (err: any) {
+      toast.error(`Erro ao cadastrar cliente: ${err.message || err}`);
+    } finally {
+      setSalvandoNovoCliente(false);
+    }
+  };
 
   // Mutation para criar ou editar o orçamento
   const mutation = useMutation({
@@ -444,6 +519,7 @@ export function NovoOrcamentoDialog({
   });
 
   return (
+    <>
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent
         className="max-w-4xl max-h-[92vh] overflow-y-auto p-6"
@@ -484,33 +560,52 @@ export function NovoOrcamentoDialog({
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div className="md:col-span-2 space-y-1">
-                <Label htmlFor="cliente-select" className="text-xs font-medium text-slate-700">
-                  Cliente <span className="text-red-500">*</span>
-                </Label>
+              <div className="md:col-span-2 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="cliente-select" className="text-xs font-semibold text-slate-800 flex items-center gap-1.5">
+                    <span>Cliente <span className="text-red-500">*</span></span>
+                    <span className="text-[11px] font-normal text-slate-500">
+                      ({clientes.length} {clientes.length === 1 ? "cliente" : "clientes"})
+                    </span>
+                  </Label>
+                  <button
+                    type="button"
+                    onClick={() => setShowNovoClienteModal(true)}
+                    className="text-xs font-medium text-blue-600 hover:text-blue-800 flex items-center gap-1 hover:underline cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> + Cadastrar Novo Cliente
+                  </button>
+                </div>
                 <div className="relative">
                   <select
                     id="cliente-select"
                     value={clienteId}
                     onChange={(e) => setClienteId(e.target.value)}
-                    className="w-full h-10 px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full h-10 px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-xs"
                   >
-                    <option value="">-- Selecione o Cliente --</option>
+                    <option value="">-- Selecione o Cliente ({clientesFiltrados.length}) --</option>
                     {clientesFiltrados.map((c) => (
                       <option key={c.id} value={c.id}>
-                        {c.nome} {c.telefone ? `(${c.telefone})` : ""}{" "}
-                        {c.bairro ? `- ${c.bairro}` : ""}
+                        {c.nome} {c.telefone ? `(${c.telefone})` : ""} {c.bairro ? `- ${c.bairro}` : ""} {c.cidade ? `(${c.cidade})` : ""}
                       </option>
                     ))}
                   </select>
                 </div>
-                {clientes.length > 10 && (
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
                   <Input
-                    placeholder="Filtrar lista de clientes por nome ou telefone..."
+                    placeholder="Filtrar clientes por nome, telefone, bairro ou cidade..."
                     value={buscaCliente}
                     onChange={(e) => setBuscaCliente(e.target.value)}
-                    className="h-8 text-xs mt-1.5 bg-white"
+                    className="h-8 pl-8 text-xs bg-white border-slate-200"
                   />
+                </div>
+                {clienteSelecionado && (
+                  <div className="text-[11px] text-slate-600 bg-white p-2 rounded-md border border-slate-200 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <span><strong>Tel:</strong> {clienteSelecionado.telefone || "Não informado"}</span>
+                    <span><strong>End:</strong> {clienteSelecionado.endereco ? `${clienteSelecionado.endereco}${clienteSelecionado.numero ? `, ${clienteSelecionado.numero}` : ""}` : "Não informado"}</span>
+                    <span><strong>Bairro/Cidade:</strong> {[clienteSelecionado.bairro, clienteSelecionado.cidade].filter(Boolean).join(" - ") || "—"}</span>
+                  </div>
                 )}
               </div>
 
@@ -998,5 +1093,125 @@ export function NovoOrcamentoDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    {/* Modal Compacta para Cadastrar Novo Cliente sem sair do Orçamento */}
+    <Dialog open={showNovoClienteModal} onOpenChange={setShowNovoClienteModal}>
+      <DialogContent className="max-w-md p-5">
+        <DialogHeader>
+          <DialogTitle className="text-base font-bold text-slate-900 flex items-center gap-2">
+            <Plus className="w-4 h-4 text-blue-600" /> Cadastrar Novo Cliente
+          </DialogTitle>
+          <p className="text-xs text-slate-500">
+            Cadastre os dados essenciais. Ele será selecionado automaticamente neste orçamento.
+          </p>
+        </DialogHeader>
+
+        <div className="space-y-3 py-2">
+          <div>
+            <Label className="text-xs font-semibold text-slate-700">
+              Nome Completo / Razão Social <span className="text-red-500">*</span>
+            </Label>
+            <Input
+              value={novoClienteForm.nome}
+              onChange={(e) => setNovoClienteForm({ ...novoClienteForm, nome: e.target.value })}
+              placeholder="Ex: Condomínio Solar das Palmeiras ou Maria Silva"
+              className="h-9 text-xs mt-1"
+              autoFocus
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <Label className="text-xs font-medium text-slate-700">Telefone / WhatsApp</Label>
+              <Input
+                value={novoClienteForm.telefone}
+                onChange={(e) => setNovoClienteForm({ ...novoClienteForm, telefone: e.target.value })}
+                placeholder="(47) 99999-9999"
+                className="h-9 text-xs mt-1"
+              />
+            </div>
+            <div>
+              <Label className="text-xs font-medium text-slate-700">CPF ou CNPJ</Label>
+              <Input
+                value={novoClienteForm.cpf_cnpj}
+                onChange={(e) => setNovoClienteForm({ ...novoClienteForm, cpf_cnpj: e.target.value })}
+                placeholder="000.000.000-00"
+                className="h-9 text-xs mt-1"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            <div className="col-span-2">
+              <Label className="text-xs font-medium text-slate-700">Endereço (Rua/Av)</Label>
+              <Input
+                value={novoClienteForm.endereco}
+                onChange={(e) => setNovoClienteForm({ ...novoClienteForm, endereco: e.target.value })}
+                placeholder="Rua das Acácias"
+                className="h-9 text-xs mt-1"
+              />
+            </div>
+            <div>
+              <Label className="text-xs font-medium text-slate-700">Número</Label>
+              <Input
+                value={novoClienteForm.numero}
+                onChange={(e) => setNovoClienteForm({ ...novoClienteForm, numero: e.target.value })}
+                placeholder="123"
+                className="h-9 text-xs mt-1"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <Label className="text-xs font-medium text-slate-700">Bairro</Label>
+              <Input
+                value={novoClienteForm.bairro}
+                onChange={(e) => setNovoClienteForm({ ...novoClienteForm, bairro: e.target.value })}
+                placeholder="Centro"
+                className="h-9 text-xs mt-1"
+              />
+            </div>
+            <div>
+              <Label className="text-xs font-medium text-slate-700">Cidade</Label>
+              <Input
+                value={novoClienteForm.cidade}
+                onChange={(e) => setNovoClienteForm({ ...novoClienteForm, cidade: e.target.value })}
+                placeholder="Barra Velha"
+                className="h-9 text-xs mt-1"
+              />
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter className="gap-2 pt-2 border-t border-slate-100">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setShowNovoClienteModal(false)}
+            disabled={salvandoNovoCliente}
+          >
+            Cancelar
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            onClick={handleSalvarNovoCliente}
+            disabled={salvandoNovoCliente || !novoClienteForm.nome.trim()}
+            className="bg-blue-600 hover:bg-blue-700 text-white"
+          >
+            {salvandoNovoCliente ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Salvando...
+              </>
+            ) : (
+              "Salvar e Selecionar"
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

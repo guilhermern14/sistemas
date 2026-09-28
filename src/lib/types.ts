@@ -15,6 +15,7 @@ export type Cliente = {
 };
 
 export type ClienteResumo = {
+  id?: string;
   nome: string;
   cpf_cnpj?: string | null;
   telefone: string | null;
@@ -22,6 +23,20 @@ export type ClienteResumo = {
   numero: string | null;
   bairro: string | null;
   cidade: string | null;
+};
+
+export type ParcelaStatus = "pendente" | "pago";
+
+export type Parcela = {
+  id?: string;
+  numero: number;
+  total_parcelas: number;
+  valor: number;
+  data_vencimento: string; // YYYY-MM-DD
+  status: ParcelaStatus;
+  forma_pagamento?: string | null;
+  pago_em?: string | null;
+  observacoes?: string | null;
 };
 
 export type Servico = {
@@ -49,6 +64,8 @@ export type Servico = {
   pos_venda_em: string | null;
   concluido_em: string | null;
   pago_em: string | null;
+  forma_pagamento?: string | null;
+  parcelas?: Parcela[] | null;
   created_at: string;
   clientes?: ClienteResumo | null;
 };
