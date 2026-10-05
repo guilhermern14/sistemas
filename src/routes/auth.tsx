@@ -5,16 +5,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Wrench, Shield, User, HardHat, DollarSign } from "lucide-react";
+import { Wrench } from "lucide-react";
 
 export const Route = createFileRoute("/auth")({
   ssr: false,
   head: () => ({
     meta: [
       { title: "Entrar — Nascimento Sistemas de Segurança" },
-      { name: "description", content: "Acesse o sistema com o login da sua função." },
+      { name: "description", content: "Acesse o sistema com o seu login e senha." },
       { property: "og:title", content: "Entrar — Nascimento Sistemas de Segurança" },
-      { property: "og:description", content: "Acesse o sistema com o login da sua função." },
+      { property: "og:description", content: "Acesse o sistema com o seu login e senha." },
     ],
   }),
   beforeLoad: async () => {
@@ -25,13 +25,6 @@ export const Route = createFileRoute("/auth")({
   },
   component: AuthPage,
 });
-
-const DEFAULT_USERS = [
-  { role: "Administrador", email: "admin@nascimento.com", senha: "admin123", icon: Shield },
-  { role: "Atendente", email: "atendente@nascimento.com", senha: "admin123", icon: User },
-  { role: "Técnico (Campo)", email: "campo@nascimento.com", senha: "admin123", icon: HardHat },
-  { role: "Financeiro", email: "financeiro@nascimento.com", senha: "admin123", icon: DollarSign },
-];
 
 function AuthPage() {
   const navigate = useNavigate();
@@ -100,38 +93,6 @@ function AuthPage() {
           <Button id="btn-entrar" type="submit" className="w-full" disabled={loading}>
             {loading ? "Entrando..." : "Entrar"}
           </Button>
-
-          <div className="pt-2">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground text-center">
-              Acesso Rápido de Demonstração
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              {DEFAULT_USERS.map((u) => {
-                const IconComponent = u.icon;
-                return (
-                  <button
-                    key={u.email}
-                    type="button"
-                    onClick={() => {
-                      setEmail(u.email);
-                      setSenha(u.senha);
-                      void handleLogin(u.email, u.senha);
-                    }}
-                    className="flex flex-col items-start rounded-lg border bg-muted/40 p-2.5 text-left text-xs transition-colors hover:bg-muted hover:border-primary/50"
-                  >
-                    <div className="flex items-center gap-1.5 font-medium text-foreground">
-                      <IconComponent className="h-3.5 w-3.5 text-primary" />
-                      <span>{u.role}</span>
-                    </div>
-                    <span className="mt-1 text-[11px] text-muted-foreground truncate w-full">{u.email}</span>
-                  </button>
-                );
-              })}
-            </div>
-            <p className="mt-3 text-center text-[11px] text-muted-foreground">
-              Senha padrão para todos os perfis acima: <strong className="text-foreground">admin123</strong>
-            </p>
-          </div>
         </form>
       </div>
     </div>
