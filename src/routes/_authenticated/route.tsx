@@ -19,11 +19,15 @@ import {
   Menu,
   Calculator,
   Wrench,
+  Bell,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { BoletosHoje } from "@/components/BoletosHoje";
+import { AvisosEntradaDialog } from "@/components/AvisosEntradaDialog";
+import { useQuery } from "@tanstack/react-query";
+import { getAmanhaISO } from "@/lib/avisos";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
@@ -39,6 +43,7 @@ type NavItem = { to: string; label: string; icon: typeof Users; roles: AppRole[]
 
 const navItems: NavItem[] = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "atendente", "campo", "financeiro"] },
+  { to: "/avisos", label: "Avisos", icon: Bell, roles: ["admin", "atendente", "campo", "financeiro"] },
   { to: "/agenda", label: "Agenda", icon: Calendar, roles: ["admin", "atendente", "campo", "financeiro"] },
   { to: "/agendamentos", label: "Agendamentos", icon: CalendarClock, roles: ["admin", "atendente", "campo"] },
   { to: "/orcamentos", label: "Orçamentos", icon: Calculator, roles: ["admin", "atendente", "financeiro"] },
@@ -60,6 +65,20 @@ function AppLayout() {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [open, setOpen] = useState(false);
+
+  // Consulta quantidade de avisos ativos (hoje, amanhã ou atrasados)
+  const { data: avisosAtivosCount = 0 } = useQuery({
+    queryKey: ["avisos-count-badge"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("avisos")
+        .select("id, data_aviso, status");
+      if (error) return 0;
+      const amanha = getAmanhaISO();
+      return (data || []).filter((a: any) => a.status === "pendente" && a.data_aviso <= amanha).length;
+    },
+    refetchInterval: 15000,
+  });
 
   const items = navItems.filter((i) => (role ? i.roles.includes(role) : false));
 
@@ -86,6 +105,7 @@ function AppLayout() {
         <nav className="flex-1 space-y-1 p-3">
           {items.map((item) => {
             const active = pathname === item.to;
+            const isAvisos = item.to === "/avisos";
             return (
               <Link
                 key={item.to}
@@ -99,7 +119,12 @@ function AppLayout() {
                 )}
               >
                 <item.icon className="h-4 w-4" />
-                {item.label}
+                <span className="flex-1">{item.label}</span>
+                {isAvisos && avisosAtivosCount > 0 && (
+                  <span className="inline-flex items-center justify-center rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-bold text-white shadow-xs">
+                    {avisosAtivosCount}
+                  </span>
+                )}
               </Link>
             );
           })}
@@ -130,6 +155,7 @@ function AppLayout() {
 
         <main className="flex-1 p-4 md:p-8">
           <BoletosHoje />
+          <AvisosEntradaDialog />
           <Outlet />
         </main>
       </div>

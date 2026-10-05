@@ -83,6 +83,23 @@ export type Boleto = {
   created_at: string;
 };
 
+export type AvisoStatus = "pendente" | "resolvido";
+
+export type Aviso = {
+  id: string;
+  cliente_id?: string | null;
+  data_aviso: string; // YYYY-MM-DD
+  titulo?: string | null;
+  mensagem: string;
+  status: AvisoStatus;
+  resolvido_em?: string | null;
+  created_at: string;
+  updated_at?: string;
+  created_by?: string | null;
+  clientes?: ClienteResumo | null;
+  rel_clientes?: ClienteResumo | null;
+};
+
 export type TopicoWhatsapp = {
   id: string;
   pergunta: string;

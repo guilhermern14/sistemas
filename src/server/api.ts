@@ -441,6 +441,41 @@ const initialMockData: Record<string, any[]> = {
       created_at: "2026-08-25T10:00:00.000Z",
     },
   ],
+  avisos: [
+    {
+      id: "av-001",
+      cliente_id: "c-001",
+      data_aviso: "2026-10-04",
+      titulo: "Revisão Preventiva de Câmeras",
+      mensagem: "Verificar se as câmeras externas do condomínio estão com lente limpa e gravação normal no DVR.",
+      status: "pendente",
+      resolvido_em: null,
+      created_by: "u-admin-001",
+      created_at: nowIso(),
+    },
+    {
+      id: "av-002",
+      cliente_id: "c-002",
+      data_aviso: "2026-10-05",
+      titulo: "Retorno da Proposta de Alarme",
+      mensagem: "Ligar para o gerente do Supermercado Boa Vista para confirmar aprovação do orçamento de cabeamento e sensores.",
+      status: "pendente",
+      resolvido_em: null,
+      created_by: "u-admin-001",
+      created_at: nowIso(),
+    },
+    {
+      id: "av-003",
+      cliente_id: "c-003",
+      data_aviso: "2026-10-03",
+      titulo: "Troca de bateria da sirene",
+      mensagem: "Cliente avisou que o alarme emitiu bip de bateria fraca. Agendar troca técnica da bateria de 12V 7Ah.",
+      status: "pendente",
+      resolvido_em: null,
+      created_by: "u-admin-001",
+      created_at: nowIso(),
+    },
+  ],
 };
 
 function loadMockDataFromDisk(): Record<string, any[]> {
@@ -459,6 +494,7 @@ function loadMockDataFromDisk(): Record<string, any[]> {
 export const mockData: Record<string, any[]> = loadMockDataFromDisk();
 if (!mockData.orcamentos) mockData.orcamentos = [...initialMockData.orcamentos];
 if (!mockData.orcamento_itens) mockData.orcamento_itens = [...initialMockData.orcamento_itens];
+if (!mockData.avisos || mockData.avisos.length === 0) mockData.avisos = [...initialMockData.avisos];
 
 export function saveMockDataToDisk() {
   try {
@@ -519,6 +555,15 @@ function executeMockQuery(sql: string, values: any[] = []) {
     if (table1 === "orcamentos" && table2 === "orcamento_itens") {
       return {
         rows: [{ origem: "orcamento_itens", coluna: "orcamento_id", destino: "orcamentos", coluna_destino: "id" }],
+        rowCount: 1,
+      };
+    }
+    if (
+      (table1 === "avisos" && table2 === "clientes") ||
+      (table1 === "clientes" && table2 === "avisos")
+    ) {
+      return {
+        rows: [{ origem: "avisos", coluna: "cliente_id", destino: "clientes", coluna_destino: "id" }],
         rowCount: 1,
       };
     }
@@ -841,6 +886,13 @@ function executeMockQuery(sql: string, values: any[] = []) {
       result = result.map((o) => {
         const c = (mockData.clientes || []).find((cl) => cl.id === o.cliente_id) || null;
         return { ...o, clientes: c };
+      });
+    }
+
+    if (tableName === "avisos" && (trimmed.includes("clientes") || trimmed.includes("rel_clientes"))) {
+      result = result.map((a) => {
+        const c = (mockData.clientes || []).find((cl) => cl.id === a.cliente_id) || null;
+        return { ...a, clientes: c, rel_clientes: c };
       });
     }
 
