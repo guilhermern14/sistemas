@@ -22,7 +22,7 @@ import {
   Bell,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { BoletosHoje } from "@/components/BoletosHoje";
 import { AvisosEntradaDialog } from "@/components/AvisosEntradaDialog";
@@ -32,6 +32,9 @@ import { getAmanhaISO } from "@/lib/avisos";
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
   beforeLoad: async () => {
+    if (typeof window === "undefined") {
+      return { user: null };
+    }
     const { data, error } = await supabase.auth.getUser();
     if (error || !data.user) throw redirect({ to: "/auth" });
     return { user: data.user };
@@ -61,10 +64,15 @@ const navItems: NavItem[] = [
 ];
 
 function AppLayout() {
+  const [mounted, setMounted] = useState(false);
   const { role, nome, user, loading } = useAuth();
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Consulta quantidade de avisos ativos (hoje, amanhã ou atrasados)
   const { data: avisosAtivosCount = 0 } = useQuery({
@@ -77,8 +85,20 @@ function AppLayout() {
       const amanha = getAmanhaISO();
       return (data || []).filter((a: any) => a.status === "pendente" && a.data_aviso <= amanha).length;
     },
+    enabled: mounted,
     refetchInterval: 15000,
   });
+
+  if (!mounted) {
+    return (
+      <div className="flex min-h-screen w-full items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          <p className="text-xs text-muted-foreground font-medium">Carregando painel...</p>
+        </div>
+      </div>
+    );
+  }
 
   const items = navItems.filter((i) => (role ? i.roles.includes(role) : false));
 

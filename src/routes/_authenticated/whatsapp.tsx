@@ -19,6 +19,7 @@ import { Copy, Pencil, Plus, Trash2 } from "lucide-react";
 import type { TopicoWhatsapp } from "@/lib/types";
 
 export const Route = createFileRoute("/_authenticated/whatsapp")({
+  ssr: false,
   head: () => ({
     meta: [
       { title: "WhatsApp — Nascimento Sistemas de Segurança" },

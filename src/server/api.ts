@@ -679,40 +679,33 @@ function executeMockQuery(sql: string, values: any[] = []) {
     if (!mockData.notas_fiscais_itens) mockData.notas_fiscais_itens = [];
     if (!mockData.estoque) mockData.estoque = [];
 
-    const existingNotaIdx = mockData.notas_fiscais.findIndex(
+    const existingNota = mockData.notas_fiscais.find(
       (n: any) =>
         (p_chave && n.chave && String(n.chave).trim() === String(p_chave).trim()) ||
-        (p_numero && n.numero && String(n.numero).trim() === String(p_numero).trim() && n.fornecedor === p_fornecedor && n.tipo === p_tipo)
+        (p_numero && n.numero && String(n.numero).trim() === String(p_numero).trim() && (
+          (p_fornecedor && n.fornecedor && (String(n.fornecedor).trim().toLowerCase().includes(String(p_fornecedor).trim().toLowerCase()) || String(p_fornecedor).trim().toLowerCase().includes(String(n.fornecedor).trim().toLowerCase()))) ||
+          (p_serie && n.serie && String(n.serie).trim() === String(p_serie).trim())
+        ))
     );
 
-    let targetNotaId = notaId;
-
-    if (existingNotaIdx !== -1) {
-      targetNotaId = mockData.notas_fiscais[existingNotaIdx].id;
-      mockData.notas_fiscais[existingNotaIdx].valor_total = p_valor_total;
-      mockData.notas_fiscais[existingNotaIdx].data_emissao = p_data_emissao;
-      mockData.notas_fiscais[existingNotaIdx].serie = p_serie || mockData.notas_fiscais[existingNotaIdx].serie;
-      mockData.notas_fiscais[existingNotaIdx].chave = p_chave || mockData.notas_fiscais[existingNotaIdx].chave;
-      mockData.notas_fiscais[existingNotaIdx].origem = p_origem || mockData.notas_fiscais[existingNotaIdx].origem;
-      // Remove old items for this note to re-insert fresh
-      mockData.notas_fiscais_itens = mockData.notas_fiscais_itens.filter(
-        (i: any) => i.nota_fiscal_id !== targetNotaId
-      );
-    } else {
-      const novaNota = {
-        id: targetNotaId,
-        tipo: p_tipo,
-        data_emissao: p_data_emissao,
-        fornecedor: p_fornecedor,
-        numero: p_numero,
-        serie: p_serie,
-        chave: p_chave,
-        valor_total: p_valor_total,
-        origem: p_origem,
-        created_at: nowIso(),
-      };
-      mockData.notas_fiscais.unshift(novaNota);
+    if (existingNota) {
+      throw new Error(`Esta nota fiscal já foi importada anteriormente no sistema (NF nº ${existingNota.numero || p_numero || "S/N"}${existingNota.fornecedor ? ` - ${existingNota.fornecedor}` : ""}). Não é permitido importar a mesma nota duas vezes.`);
     }
+
+    const novaNota = {
+      id: notaId,
+      tipo: p_tipo,
+      data_emissao: p_data_emissao,
+      fornecedor: p_fornecedor,
+      numero: p_numero,
+      serie: p_serie,
+      chave: p_chave,
+      valor_total: p_valor_total,
+      origem: p_origem,
+      created_at: nowIso(),
+    };
+    mockData.notas_fiscais.unshift(novaNota);
+    const targetNotaId = notaId;
 
     for (const it of p_itens) {
       const itemId = "nfi-" + Math.random().toString(36).slice(2, 10);
@@ -1584,39 +1577,35 @@ restRouter.post("/rpc/:fn", async (req: Request, res: Response) => {
     if (!mockData.notas_fiscais_itens) mockData.notas_fiscais_itens = [];
     if (!mockData.estoque) mockData.estoque = [];
 
-    const existingNotaIdx = mockData.notas_fiscais.findIndex(
+    const existingNota = mockData.notas_fiscais.find(
       (n: any) =>
         (p_chave && n.chave && String(n.chave).trim() === String(p_chave).trim()) ||
-        (p_numero && n.numero && String(n.numero).trim() === String(p_numero).trim() && n.fornecedor === p_fornecedor && n.tipo === p_tipo)
+        (p_numero && n.numero && String(n.numero).trim() === String(p_numero).trim() && (
+          (p_fornecedor && n.fornecedor && (String(n.fornecedor).trim().toLowerCase().includes(String(p_fornecedor).trim().toLowerCase()) || String(p_fornecedor).trim().toLowerCase().includes(String(n.fornecedor).trim().toLowerCase()))) ||
+          (p_serie && n.serie && String(n.serie).trim() === String(p_serie).trim())
+        ))
     );
 
-    let targetNotaId = notaId;
-
-    if (existingNotaIdx !== -1) {
-      targetNotaId = mockData.notas_fiscais[existingNotaIdx].id;
-      mockData.notas_fiscais[existingNotaIdx].valor_total = p_valor_total;
-      mockData.notas_fiscais[existingNotaIdx].data_emissao = p_data_emissao;
-      mockData.notas_fiscais[existingNotaIdx].serie = p_serie || mockData.notas_fiscais[existingNotaIdx].serie;
-      mockData.notas_fiscais[existingNotaIdx].chave = p_chave || mockData.notas_fiscais[existingNotaIdx].chave;
-      mockData.notas_fiscais[existingNotaIdx].origem = p_origem || mockData.notas_fiscais[existingNotaIdx].origem;
-      mockData.notas_fiscais_itens = mockData.notas_fiscais_itens.filter(
-        (i: any) => i.nota_fiscal_id !== targetNotaId
-      );
-    } else {
-      const novaNota = {
-        id: targetNotaId,
-        tipo: p_tipo,
-        data_emissao: p_data_emissao,
-        fornecedor: p_fornecedor,
-        numero: p_numero,
-        serie: p_serie,
-        chave: p_chave,
-        valor_total: p_valor_total,
-        origem: p_origem,
-        created_at: nowIso(),
-      };
-      mockData.notas_fiscais.unshift(novaNota);
+    if (existingNota) {
+      return res.status(400).json({
+        message: `Esta nota fiscal já foi importada anteriormente no sistema (NF nº ${existingNota.numero || p_numero || "S/N"}${existingNota.fornecedor ? ` - ${existingNota.fornecedor}` : ""}). A mesma nota não pode ser importada duas vezes para evitar duplicidade de estoque e financeiro.`,
+      });
     }
+
+    const novaNota = {
+      id: notaId,
+      tipo: p_tipo,
+      data_emissao: p_data_emissao,
+      fornecedor: p_fornecedor,
+      numero: p_numero,
+      serie: p_serie,
+      chave: p_chave,
+      valor_total: p_valor_total,
+      origem: p_origem,
+      created_at: nowIso(),
+    };
+    mockData.notas_fiscais.unshift(novaNota);
+    const targetNotaId = notaId;
 
     for (const it of p_itens) {
       const itemId = "nfi-" + Math.random().toString(36).slice(2, 10);

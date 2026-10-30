@@ -467,5 +467,79 @@
       "created_at": "2026-08-25T16:35:55.897Z",
       "updated_at": "2026-08-25T16:35:55.897Z"
     }
+  ],
+  "orcamentos": [
+    {
+      "id": "orc-001",
+      "numero": 501,
+      "cliente_id": "c-001",
+      "data": "2026-08-25",
+      "validade_dias": 15,
+      "descricao": "Instalação de 4 câmeras IP Full HD e central de alarme no perímetro externo.",
+      "status": "pendente",
+      "horas_mao_obra": 4,
+      "valor_mao_obra": 350,
+      "custo_adicional": 50,
+      "descricao_custo_adicional": "Deslocamento técnico",
+      "incluir_custo_no_total": true,
+      "desconto": 50,
+      "valor_bruto": 1680,
+      "valor_total": 1680,
+      "forma_pagamento": "À vista no PIX (5% desc.) ou até 3x no cartão sem juros",
+      "observacoes": "Garantia de 1 ano para equipamentos e 90 dias para instalação.",
+      "servico_id_gerado": null,
+      "aprovado_em": null,
+      "created_by": "u-admin-001",
+      "created_at": "2026-08-25T10:00:00.000Z"
+    }
+  ],
+  "orcamento_itens": [
+    {
+      "id": "oi-001",
+      "orcamento_id": "orc-001",
+      "estoque_id": "e-001",
+      "codigo": "CAM-IP4M",
+      "produto": "Câmera Bullet IP 4MP Infravermelho 30m Intelbras",
+      "unidade": "UN",
+      "quantidade": 4,
+      "valor_custo": 185,
+      "valor_venda": 320,
+      "created_at": "2026-08-25T10:00:00.000Z"
+    }
+  ],
+  "avisos": [
+    {
+      "id": "av-001",
+      "cliente_id": "c-001",
+      "data_aviso": "2026-10-04",
+      "titulo": "Revisão Preventiva de Câmeras",
+      "mensagem": "Verificar se as câmeras externas do condomínio estão com lente limpa e gravação normal no DVR.",
+      "status": "pendente",
+      "resolvido_em": null,
+      "created_by": "u-admin-001",
+      "created_at": "2026-10-30T17:03:11.473Z"
+    },
+    {
+      "id": "av-002",
+      "cliente_id": "c-002",
+      "data_aviso": "2026-10-05",
+      "titulo": "Retorno da Proposta de Alarme",
+      "mensagem": "Ligar para o gerente do Supermercado Boa Vista para confirmar aprovação do orçamento de cabeamento e sensores.",
+      "status": "pendente",
+      "resolvido_em": null,
+      "created_by": "u-admin-001",
+      "created_at": "2026-10-30T17:03:11.473Z"
+    },
+    {
+      "id": "av-003",
+      "cliente_id": "c-003",
+      "data_aviso": "2026-10-03",
+      "titulo": "Troca de bateria da sirene",
+      "mensagem": "Cliente avisou que o alarme emitiu bip de bateria fraca. Agendar troca técnica da bateria de 12V 7Ah.",
+      "status": "pendente",
+      "resolvido_em": null,
+      "created_by": "u-admin-001",
+      "created_at": "2026-10-30T17:03:11.473Z"
+    }
   ]
 }

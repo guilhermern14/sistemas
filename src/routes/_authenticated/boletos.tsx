@@ -28,6 +28,7 @@ import { formatMoney } from "@/lib/servico";
 import type { Boleto } from "@/lib/types";
 
 export const Route = createFileRoute("/_authenticated/boletos")({
+  ssr: false,
   head: () => ({
     meta: [
       { title: "Boletos — Nascimento Sistemas de Segurança" },

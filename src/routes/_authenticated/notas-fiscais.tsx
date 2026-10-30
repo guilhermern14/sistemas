@@ -14,13 +14,14 @@ import {
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
-import { Eye, FileText, FileUp, Plus, ReceiptText, Trash2 } from "lucide-react";
+import { AlertTriangle, Eye, FileText, FileUp, Plus, ReceiptText, Trash2 } from "lucide-react";
 import { ConfirmDeleteDialog } from "@/components/ConfirmDeleteDialog";
 import { formatMoney } from "@/lib/servico";
 import { MARGEM_VENDA, parseNfe, type NotaXml } from "@/lib/xml-nfe";
 import type { NotaFiscal, NotaFiscalItem, NotaFiscalTipo } from "@/lib/types";
 
 export const Route = createFileRoute("/_authenticated/notas-fiscais")({
+  ssr: false,
   head: () => ({
     meta: [
       { title: "Notas Fiscais — Nascimento Sistemas de Segurança" },
@@ -63,6 +64,7 @@ function NotasFiscaisPage() {
   const [tipoManual, setTipoManual] = useState<NotaFiscalTipo>("compra");
   const [tipoImportacao, setTipoImportacao] = useState<NotaFiscalTipo>("compra");
   const [notaXml, setNotaXml] = useState<NotaXml | null>(null);
+  const [notaDuplicada, setNotaDuplicada] = useState<NotaFiscal | null>(null);
   const [boletosXml, setBoletosXml] = useState<Array<{ numero: string; vencimento: string; valor: string }>>([]);
   const [openXml, setOpenXml] = useState(false);
   const [detalhes, setDetalhes] = useState<NotaFiscal | null>(null);
@@ -160,6 +162,30 @@ function NotasFiscaisPage() {
 
   const importarNota = useMutation({
     mutationFn: async ({ nota, tipo, boletos }: { nota: NotaXml; tipo: NotaFiscalTipo; boletos: Array<{ numero: string; vencimento: string; valor: string }> }) => {
+      // Bloquear se já estiver cadastrada
+      if (notaDuplicada) {
+        throw new Error(
+          `Esta nota fiscal (NF nº ${nota.numero || "S/N"}) já foi importada anteriormente no sistema. Não é permitido importar a mesma nota duas vezes.`
+        );
+      }
+
+      // Verificação de segurança adicional contra a lista de notas carregada
+      const jaExiste = notas.find((n) => {
+        if (nota.chave && n.chave && String(n.chave).trim() === String(nota.chave).trim()) return true;
+        if (nota.numero && n.numero && String(n.numero).trim() === String(nota.numero).trim()) {
+          const fornXml = (nota.emitente || nota.fornecedor || "").trim().toLowerCase();
+          const fornNota = (n.fornecedor || "").trim().toLowerCase();
+          if (fornXml && fornNota && (fornXml.includes(fornNota) || fornNota.includes(fornXml))) return true;
+          if (nota.serie && n.serie && String(nota.serie).trim() === String(n.serie).trim()) return true;
+        }
+        return false;
+      });
+      if (jaExiste) {
+        throw new Error(
+          `Esta nota fiscal (NF nº ${nota.numero || "S/N"}) já foi importada no sistema em ${new Date(jaExiste.created_at || jaExiste.data_emissao).toLocaleDateString("pt-BR")}.`
+        );
+      }
+
       const itensJson = nota.itens.map((i) => ({
         codigo: i.codigo || null,
         produto: i.produto,
@@ -200,6 +226,7 @@ function NotasFiscaisPage() {
           : "Nota emitida cadastrada com sucesso."
       );
       setNotaXml(null);
+      setNotaDuplicada(null);
       setBoletosXml([]);
       setOpenXml(false);
 
@@ -273,6 +300,36 @@ function NotasFiscaisPage() {
         toast.error("O XML não contém número ou chave da nota fiscal.");
         return;
       }
+
+      // Checar se a nota já foi importada anteriormente
+      const duplicada = notas.find((n) => {
+        if (lida.chave && n.chave && String(n.chave).trim().toLowerCase() === String(lida.chave).trim().toLowerCase()) {
+          return true;
+        }
+        if (lida.numero && n.numero && String(n.numero).trim() === String(lida.numero).trim()) {
+          const fornXml = (lida.emitente || lida.fornecedor || "").trim().toLowerCase();
+          const fornNota = (n.fornecedor || "").trim().toLowerCase();
+          if (fornXml && fornNota && (fornXml.includes(fornNota) || fornNota.includes(fornXml))) {
+            return true;
+          }
+          if (lida.serie && n.serie && String(lida.serie).trim() === String(n.serie).trim()) {
+            return true;
+          }
+        }
+        return false;
+      }) || null;
+
+      setNotaDuplicada(duplicada);
+
+      if (duplicada) {
+        const dataStr = duplicada.created_at || duplicada.data_emissao;
+        const dataFmt = dataStr ? new Date(dataStr).toLocaleDateString("pt-BR") : "";
+        toast.error(
+          `Atenção: A nota fiscal ${lida.numero ? `nº ${lida.numero}` : ""} já foi importada anteriormente${dataFmt ? ` em ${dataFmt}` : ""}! A importação em duplicidade foi bloqueada.`,
+          { duration: 6000 }
+        );
+      }
+
       setNotaXml(lida);
       setTipoImportacao(lida.tipo_sugerido || "compra");
       setBoletosXml(
@@ -471,11 +528,28 @@ function NotasFiscaisPage() {
         isPending={excluirNota.isPending}
       />
 
-      <Dialog open={openXml} onOpenChange={setOpenXml}>
+      <Dialog open={openXml} onOpenChange={(v) => { setOpenXml(v); if (!v) { setNotaDuplicada(null); setNotaXml(null); } }}>
         <DialogContent className="max-h-[85vh] max-w-4xl overflow-y-auto">
           <DialogHeader><DialogTitle>Conferir nota antes de importar</DialogTitle></DialogHeader>
           {notaXml && (
             <div className="space-y-5">
+              {notaDuplicada && (
+                <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-destructive space-y-2 shadow-xs">
+                  <div className="flex items-center gap-2 font-bold text-sm text-destructive">
+                    <AlertTriangle className="h-5 w-5 text-destructive shrink-0" />
+                    <span>Atenção: Esta nota fiscal já foi importada anteriormente no sistema!</span>
+                  </div>
+                  <p className="text-xs text-destructive/90 leading-relaxed">
+                    A nota fiscal <strong>{notaDuplicada.numero ? `NF nº ${notaDuplicada.numero}` : "desta operação"}</strong>
+                    {notaDuplicada.fornecedor ? ` (${notaDuplicada.fornecedor})` : ""} já foi cadastrada anteriormente no dia{" "}
+                    <strong>{new Date(notaDuplicada.created_at || notaDuplicada.data_emissao).toLocaleDateString("pt-BR")}</strong>.
+                  </p>
+                  <p className="text-xs font-semibold text-destructive">
+                    ⛔ Para proteger o estoque e o financeiro contra lançamentos duplicados, a importação desta mesma nota está bloqueada.
+                  </p>
+                </div>
+              )}
+
               <div className="grid gap-3 sm:grid-cols-4 text-sm bg-muted/40 p-3.5 rounded-lg items-center">
                 <div>
                   <span className="text-muted-foreground block text-xs mb-1 font-medium">Finalidade:</span>
@@ -523,6 +597,7 @@ function NotasFiscaisPage() {
                       type="button"
                       variant="outline"
                       size="sm"
+                      disabled={!!notaDuplicada}
                       onClick={() => setBoletosXml((prev) => [...prev, { numero: String(prev.length + 1), vencimento: notaXml.data_emissao, valor: "" }])}
                     >
                       <Plus className="h-3.5 w-3.5 mr-1" /> Adicionar Parcela
@@ -541,6 +616,7 @@ function NotasFiscaisPage() {
                             <Input
                               placeholder="Parcela"
                               value={b.numero}
+                              disabled={!!notaDuplicada}
                               onChange={(e) => {
                                 const val = e.target.value;
                                 setBoletosXml((prev) => prev.map((item, i) => i === idx ? { ...item, numero: val } : item));
@@ -552,6 +628,7 @@ function NotasFiscaisPage() {
                             <Input
                               type="date"
                               value={b.vencimento}
+                              disabled={!!notaDuplicada}
                               onChange={(e) => {
                                 const val = e.target.value;
                                 setBoletosXml((prev) => prev.map((item, i) => i === idx ? { ...item, vencimento: val } : item));
@@ -565,6 +642,7 @@ function NotasFiscaisPage() {
                               step="0.01"
                               placeholder="Valor R$"
                               value={b.valor}
+                              disabled={!!notaDuplicada}
                               onChange={(e) => {
                                 const val = e.target.value;
                                 setBoletosXml((prev) => prev.map((item, i) => i === idx ? { ...item, valor: val } : item));
@@ -576,6 +654,7 @@ function NotasFiscaisPage() {
                             type="button"
                             size="icon"
                             variant="ghost"
+                            disabled={!!notaDuplicada}
                             className="h-8 w-8 text-destructive hover:bg-destructive/10 shrink-0"
                             onClick={() => setBoletosXml((prev) => prev.filter((_, i) => i !== idx))}
                           >
@@ -588,7 +667,7 @@ function NotasFiscaisPage() {
                 </div>
               )}
 
-              {tipoImportacao === "compra" && (
+              {tipoImportacao === "compra" && !notaDuplicada && (
                 <p className="text-xs text-muted-foreground bg-primary/5 p-2.5 rounded border border-primary/20">
                   ✓ Atualiza quantidades e custos no <strong>Estoque</strong><br />
                   ✓ Registra a nota fiscal na página de <strong>Notas Fiscais</strong><br />
@@ -600,13 +679,17 @@ function NotasFiscaisPage() {
           <DialogFooter>
             <Button
               onClick={() => notaXml && importarNota.mutate({ nota: notaXml, tipo: tipoImportacao, boletos: boletosXml })}
-              disabled={!notaXml || importarNota.isPending}
+              disabled={!notaXml || !!notaDuplicada || importarNota.isPending}
+              variant={notaDuplicada ? "secondary" : "default"}
+              className={notaDuplicada ? "opacity-60 cursor-not-allowed bg-muted text-muted-foreground" : ""}
             >
-              {importarNota.isPending
-                ? "Importando..."
-                : tipoImportacao === "compra"
-                  ? `Importar Nota, Estoque e Boletos (${boletosXml.length})`
-                  : "Cadastrar nota emitida"}
+              {notaDuplicada
+                ? "Importação Bloqueada (Nota Já Cadastrada)"
+                : importarNota.isPending
+                  ? "Importando..."
+                  : tipoImportacao === "compra"
+                    ? `Importar Nota, Estoque e Boletos (${boletosXml.length})`
+                    : "Cadastrar nota emitida"}
             </Button>
           </DialogFooter>
         </DialogContent>

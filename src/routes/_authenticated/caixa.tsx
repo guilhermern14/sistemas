@@ -32,6 +32,7 @@ import { extrairContraparte, extrairLancamentosDeterministicos, ehPalavraRuido }
 import type { Lancamento, LancamentoForma, LancamentoTipo } from "@/lib/types";
 
 export const Route = createFileRoute("/_authenticated/caixa")({
+  ssr: false,
   head: () => ({
     meta: [
       { title: "Entradas e saídas — Nascimento Sistemas de Segurança" },

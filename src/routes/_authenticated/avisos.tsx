@@ -46,6 +46,7 @@ import {
 } from "@/lib/avisos";
 
 export const Route = createFileRoute("/_authenticated/avisos")({
+  ssr: false,
   head: () => ({
     meta: [
       { title: "Avisos e Lembretes — Nascimento Sistemas de Segurança" },

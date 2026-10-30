@@ -14,7 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { Search, Plus, Trash2, Calculator, PackagePlus, Pencil, Loader2 } from "lucide-react";
+import { Search, Plus, Trash2, Calculator, PackagePlus, Pencil, Loader2, Receipt, Percent } from "lucide-react";
 import { formatMoney } from "@/lib/servico";
 import { calcMaoObra } from "@/lib/empresa";
 import { useAuth } from "@/hooks/useAuth";
@@ -331,12 +331,33 @@ export function NovoOrcamentoDialog({
     );
   }, [itens]);
 
+  // Custo total dos produtos (aquisição)
+  const totalCustoProdutos = useMemo(() => {
+    return itens.reduce(
+      (acc, item) => acc + (Number(item.quantidade) || 0) * (Number(item.valor_custo) || 0),
+      0,
+    );
+  }, [itens]);
+
   const numMaoObra = parseFloat(valorMaoObra.replace(",", ".")) || 0;
   const numCustoAdicional = parseFloat(custoAdicional.replace(",", ".")) || 0;
   const numDesconto = parseFloat(desconto.replace(",", ".")) || 0;
 
   const totalBruto = totalProdutos + numMaoObra + (incluirCustoNoTotal ? numCustoAdicional : 0);
   const totalGeral = Math.max(0, totalBruto - numDesconto);
+
+  // Cálculos de Impostos das Notas Fiscais solicitados:
+  // 4% no valor total dos produtos (imposto de nota dos produtos)
+  const impostoProdutos4 = totalProdutos * 0.04;
+  // 6% no valor da mão de obra (imposto de nota da mão de obra)
+  const impostoMaoObra6 = numMaoObra * 0.06;
+  // Total somado dos impostos de notas
+  const totalImpostosNotas = impostoProdutos4 + impostoMaoObra6;
+  // Lucro líquido aproximado da operação
+  const lucroEstimado = Math.max(
+    0,
+    totalGeral - totalCustoProdutos - totalImpostosNotas - (incluirCustoNoTotal ? 0 : numCustoAdicional)
+  );
 
   // Ação para salvar novo cliente rápido e selecioná-lo imediatamente
   const handleSalvarNovoCliente = async () => {
@@ -884,9 +905,12 @@ export function NovoOrcamentoDialog({
                     <tfoot className="bg-slate-50 border-t border-slate-200 font-semibold text-xs">
                       <tr>
                         <td colSpan={3} className="p-3 text-right text-slate-600">
-                          Subtotal dos Produtos / Materiais:
+                          <span>Subtotal Venda Produtos:</span>
+                          <span className="text-[11px] font-normal text-slate-500 block">
+                            (Custo Total: {formatMoney(totalCustoProdutos)} · Imposto NF 4%: {formatMoney(impostoProdutos4)})
+                          </span>
                         </td>
-                        <td className="p-3 text-right text-blue-700 font-bold">
+                        <td className="p-3 text-right text-blue-700 font-bold text-sm">
                           {formatMoney(totalProdutos)}
                         </td>
                         <td></td>
@@ -1035,39 +1059,92 @@ export function NovoOrcamentoDialog({
             </div>
           </div>
 
-          {/* Box de Resumo Financeiro */}
-          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="space-y-1 text-xs text-slate-600">
-              <div>
-                Materiais / Produtos:{" "}
-                <span className="font-semibold text-slate-800">{formatMoney(totalProdutos)}</span>
+          {/* Box de Resumo Financeiro & Controle de Impostos das Notas */}
+          <div className="bg-gradient-to-br from-slate-50 via-blue-50/50 to-indigo-50/50 border border-blue-200 rounded-xl p-4 space-y-3.5 shadow-xs">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Coluna 1: Valores do Orçamento (Cliente) */}
+              <div className="space-y-2 text-xs">
+                <div className="font-bold text-slate-800 flex items-center gap-1.5 pb-1 border-b border-slate-200">
+                  <Calculator className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Composição do Orçamento (Cliente)</span>
+                </div>
+                <div className="space-y-1.5 text-slate-600">
+                  <div className="flex justify-between items-center">
+                    <span>Valor total dos produtos:</span>
+                    <span className="font-bold text-slate-900">{formatMoney(totalProdutos)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span>Mão de obra ({horas}h):</span>
+                    <span className="font-bold text-slate-900">{formatMoney(numMaoObra)}</span>
+                  </div>
+                  {numCustoAdicional > 0 && incluirCustoNoTotal && (
+                    <div className="flex justify-between items-center">
+                      <span>{descCustoAdicional || "Despesas adicionais"}:</span>
+                      <span className="font-semibold text-slate-800">{formatMoney(numCustoAdicional)}</span>
+                    </div>
+                  )}
+                  {numDesconto > 0 && (
+                    <div className="flex justify-between items-center text-red-600">
+                      <span>Desconto comercial:</span>
+                      <span className="font-semibold">- {formatMoney(numDesconto)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center pt-2 border-t border-slate-200">
+                    <div>
+                      <span className="text-[11px] text-blue-700 font-bold uppercase tracking-wider block">
+                        Valor Total do Orçamento
+                      </span>
+                    </div>
+                    <span className="text-xl md:text-2xl font-extrabold text-blue-950">
+                      {formatMoney(totalGeral)}
+                    </span>
+                  </div>
+                </div>
               </div>
-              <div>
-                Mão de obra ({horas}h):{" "}
-                <span className="font-semibold text-slate-800">{formatMoney(numMaoObra)}</span>
-              </div>
-              {numCustoAdicional > 0 && incluirCustoNoTotal && (
-                <div>
-                  Despesas adicionais:{" "}
-                  <span className="font-semibold text-slate-800">
-                    {formatMoney(numCustoAdicional)}
+
+              {/* Coluna 2: Custos e Impostos das Notas Fiscais (Gestão e Fiscal) */}
+              <div className="bg-white/95 border border-blue-200/80 rounded-lg p-3 text-xs space-y-2 shadow-2xs">
+                <div className="font-bold text-slate-800 flex items-center justify-between pb-1 border-b border-slate-100">
+                  <div className="flex items-center gap-1.5">
+                    <Receipt className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Custos e Impostos das Notas</span>
+                  </div>
+                  <span className="text-[10px] text-amber-800 font-semibold bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
+                    Gestão Interna
                   </span>
                 </div>
-              )}
-              {numDesconto > 0 && (
-                <div className="text-red-600">
-                  Desconto aplicado:{" "}
-                  <span className="font-semibold">- {formatMoney(numDesconto)}</span>
-                </div>
-              )}
-            </div>
 
-            <div className="text-right">
-              <div className="text-xs text-blue-700 font-semibold uppercase tracking-wider">
-                Valor Total do Orçamento
-              </div>
-              <div className="text-2xl md:text-3xl font-extrabold text-blue-900">
-                {formatMoney(totalGeral)}
+                <div className="space-y-1.5 text-slate-600">
+                  {/* Custo Total dos Produtos */}
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-700 font-medium">Valor de custo total dos produtos:</span>
+                    <span className="font-bold text-slate-900">{formatMoney(totalCustoProdutos)}</span>
+                  </div>
+
+                  {/* Imposto nota produtos 4% */}
+                  <div className="flex justify-between items-center bg-amber-50/70 border border-amber-200/60 rounded px-2 py-1">
+                    <span className="text-amber-900 font-medium">Imposto nota dos produtos (4%):</span>
+                    <span className="font-extrabold text-amber-950">{formatMoney(impostoProdutos4)}</span>
+                  </div>
+
+                  {/* Imposto nota mão de obra 6% */}
+                  <div className="flex justify-between items-center bg-blue-50/70 border border-blue-200/60 rounded px-2 py-1">
+                    <span className="text-blue-900 font-medium">Imposto nota da mão de obra (6%):</span>
+                    <span className="font-extrabold text-blue-950">{formatMoney(impostoMaoObra6)}</span>
+                  </div>
+
+                  {/* Total de Impostos das Notas */}
+                  <div className="flex justify-between items-center pt-1 border-t border-slate-100 text-[11px]">
+                    <span className="text-slate-500 font-medium">Total de impostos a pagar (4% + 6%):</span>
+                    <span className="font-bold text-slate-800">{formatMoney(totalImpostosNotas)}</span>
+                  </div>
+
+                  {/* Lucro líquido aproximado */}
+                  <div className="flex justify-between items-center text-[11px] text-emerald-700 pt-0.5 font-medium">
+                    <span>Lucro líquido estimado pós-custos:</span>
+                    <span className="font-extrabold text-emerald-800">{formatMoney(lucroEstimado)}</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

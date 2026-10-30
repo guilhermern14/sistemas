@@ -56,6 +56,7 @@ import {
 import { enderecoCompleto, mapsUrl, type Cliente, type Profile, type Servico } from "@/lib/types";
 
 export const Route = createFileRoute("/_authenticated/agendamentos")({
+  ssr: false,
   head: () => ({
     meta: [
       { title: "Agendamentos — Nascimento Sistemas de Segurança" },

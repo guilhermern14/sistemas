@@ -29,6 +29,7 @@ import type { Profile } from "@/lib/types";
 import { criarUsuario, excluirUsuario, listarUsuarios } from "@/lib/usuarios.functions";
 
 export const Route = createFileRoute("/_authenticated/usuarios")({
+  ssr: false,
   head: () => ({
     meta: [
       { title: "Usuários — Nascimento Sistemas de Segurança" },
@@ -38,6 +39,9 @@ export const Route = createFileRoute("/_authenticated/usuarios")({
     ],
   }),
   beforeLoad: async () => {
+    if (typeof window === "undefined") {
+      return;
+    }
     const { data } = await supabase.auth.getUser();
     if (!data.user) throw redirect({ to: "/auth" });
     const { data: isAdmin } = await supabase.rpc("has_role", {

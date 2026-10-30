@@ -24,6 +24,7 @@ import { MARGEM_VENDA, parseNfe, type NotaXml } from "@/lib/xml-nfe";
 import type { ProdutoEstoque } from "@/lib/types";
 
 export const Route = createFileRoute("/_authenticated/estoque")({
+  ssr: false,
   head: () => ({
     meta: [
       { title: "Estoque — Nascimento Sistemas de Segurança" },

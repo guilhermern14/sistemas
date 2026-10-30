@@ -47,6 +47,7 @@ import {
 import type { Servico, Parcela } from "@/lib/types";
 
 export const Route = createFileRoute("/_authenticated/a-cobrar")({
+  ssr: false,
   head: () => ({
     meta: [
       { title: "A Cobrar e Parcelamento — Nascimento Sistemas" },

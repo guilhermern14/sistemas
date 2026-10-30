@@ -31,6 +31,7 @@ import { formatMoney, statusBadgeClass, statusLabels, tipoLabels } from "@/lib/s
 import type { Servico } from "@/lib/types";
 
 export const Route = createFileRoute("/_authenticated/agenda")({
+  ssr: false,
   head: () => ({
     meta: [
       { title: "Agenda — Nascimento Sistemas de Segurança" },

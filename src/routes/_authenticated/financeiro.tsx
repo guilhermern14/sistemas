@@ -5,13 +5,33 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ConfirmDeleteDialog } from "@/components/ConfirmDeleteDialog";
 import { toast } from "sonner";
-import { formatDateTime, formatMoney, statusBadgeClass, statusLabels, tipoLabels } from "@/lib/servico";
+import {
+  formatDateTime,
+  formatMoney,
+  statusBadgeClass,
+  statusLabels,
+  tipoLabels,
+} from "@/lib/servico";
 import { MARGEM_VENDA } from "@/lib/xml-nfe";
 import {
+  Banknote,
   Calendar,
   CalendarClock,
   CalendarDays,
@@ -23,6 +43,7 @@ import {
   Fuel,
   HandCoins,
   Package,
+  Receipt,
   Search,
   TrendingUp,
   Wallet,
@@ -30,12 +51,20 @@ import {
 import type { Servico } from "@/lib/types";
 
 export const Route = createFileRoute("/_authenticated/financeiro")({
+  ssr: false,
   head: () => ({
     meta: [
       { title: "Financeiro — Nascimento Sistemas de Segurança" },
-      { name: "description", content: "Cobrança dos serviços executados, custos de produtos, lucro real e dízimo." },
+      {
+        name: "description",
+        content:
+          "Cobrança dos serviços executados, custos de produtos, lucro real, dízimo e impostos de notas.",
+      },
       { property: "og:title", content: "Financeiro — Nascimento Sistemas de Segurança" },
-      { property: "og:description", content: "Cobrança, custos de produtos, lucro e dízimo." },
+      {
+        property: "og:description",
+        content: "Cobrança, custos de produtos, lucro, dízimo e impostos fiscais.",
+      },
     ],
   }),
   component: FinanceiroPage,
@@ -44,6 +73,78 @@ export const Route = createFileRoute("/_authenticated/financeiro")({
 type TipoFiltroPeriodo = "todos" | "hoje" | "dia" | "semana" | "mes" | "ano";
 type TipoFiltroStatus = "todos" | "pago" | "pendente";
 
+const FORMAS_PAGAMENTO_OPCOES = [
+  { id: "pix", label: "PIX (Conta bancária)" },
+  { id: "cartao_credito", label: "Cartão de Crédito" },
+  { id: "cartao_debito", label: "Cartão de Débito" },
+  { id: "boleto", label: "Boleto Bancário" },
+  { id: "ted", label: "TED / Transferência" },
+  { id: "dinheiro", label: "Dinheiro em Espécie (Sem imposto NF)" },
+] as const;
+
+function formatarFormaPagamento(forma?: string | null) {
+  if (!forma) return "Conta (PIX)";
+  const encontrada = FORMAS_PAGAMENTO_OPCOES.find((f) => f.id === forma);
+  if (encontrada) return encontrada.label;
+  return forma;
+}
+
+function ehFormaDinheiro(forma?: string | null): boolean {
+  if (!forma) return false;
+  const f = forma.toLowerCase().trim();
+  return (
+    f === "dinheiro" || f.includes("dinheiro") || f.includes("especie") || f.includes("espécie")
+  );
+}
+
+function getProporcaoConta(s: Servico): number {
+  if (s.parcelas && Array.isArray(s.parcelas) && s.parcelas.length > 0) {
+    let valorConta = 0;
+    let valorTotal = 0;
+    for (const p of s.parcelas) {
+      const v = Number(p.valor || 0);
+      valorTotal += v;
+      const f = (p.forma_pagamento || s.forma_pagamento || "pix").toLowerCase().trim();
+      const ehDinheiro =
+        f === "dinheiro" ||
+        f.includes("dinheiro") ||
+        f.includes("especie") ||
+        f.includes("espécie");
+      if (!ehDinheiro) {
+        valorConta += v;
+      }
+    }
+    if (valorTotal > 0) {
+      return Math.min(Math.max(valorConta / valorTotal, 0), 1);
+    }
+  }
+  return ehFormaDinheiro(s.forma_pagamento) ? 0 : 1;
+}
+
+// Helper para parsing de data sem perda por fuso horário
+function parseDataReferencia(dataStr: string | null | undefined): Date | null {
+  if (!dataStr) return null;
+  const s = String(dataStr).trim();
+  const isoDateOnly = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoDateOnly) {
+    const [_, ano, mes, dia] = isoDateOnly.map(Number);
+    return new Date(ano, mes - 1, dia, 12, 0, 0); // meio-dia local, seguro contra fuso horário
+  }
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+// Obter data de referência do serviço
+function getDataReferencia(s: Servico): Date | null {
+  // Para serviços pagos, a data financeira primordial de recebimento é pago_em.
+  // Para serviços pendentes ou caso não haja pago_em, usa concluido_em, data_agendada ou created_at.
+  const dataStr =
+    s.status === "pago" && s.pago_em
+      ? s.pago_em
+      : s.pago_em || s.concluido_em || s.data_agendada || s.created_at;
+  return parseDataReferencia(dataStr);
+}
+
 function FinanceiroPage() {
   const qc = useQueryClient();
   const [alvo, setAlvo] = useState<Servico | null>(null);
@@ -51,13 +152,20 @@ function FinanceiroPage() {
   const [alvoCustoAdicional, setAlvoCustoAdicional] = useState("0");
   const [alvoDescricaoCusto, setAlvoDescricaoCusto] = useState("");
   const [alvoIncluirNoTotal, setAlvoIncluirNoTotal] = useState(false);
+  const [alvoFormaPagamento, setAlvoFormaPagamento] = useState<string>("pix");
   const [busca, setBusca] = useState("");
   const [itemParaExcluir, setItemParaExcluir] = useState<string | null>(null);
+
+  // Estados para recebimento rápido com seleção de forma de pagamento
+  const [servicoParaQuitar, setServicoParaQuitar] = useState<Servico | null>(null);
+  const [formaQuitar, setFormaQuitar] = useState<string>("pix");
 
   // Filtros de status e período
   const [filtroStatus, setFiltroStatus] = useState<TipoFiltroStatus>("todos");
   const [filtroPeriodo, setFiltroPeriodo] = useState<TipoFiltroPeriodo>("todos");
-  const [dataEspecifica, setDataEspecifica] = useState<string>(() => new Date().toISOString().split("T")[0]);
+  const [dataEspecifica, setDataEspecifica] = useState<string>(
+    () => new Date().toISOString().split("T")[0],
+  );
   const [mesSelecionado, setMesSelecionado] = useState<string>(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -158,7 +266,7 @@ function FinanceiroPage() {
       const custoAdicionalRepassado = s.incluir_custo_no_total ? Number(s.custo_adicional || 0) : 0;
       const valorMateriaisVenda = Math.max(
         Number(s.valor_bruto ?? 0) - Number(s.valor_mao_obra ?? 0) - custoAdicionalRepassado,
-        0
+        0,
       );
       if (valorMateriaisVenda > 0) {
         custoPecas = valorMateriaisVenda / MARGEM_VENDA;
@@ -173,40 +281,95 @@ function FinanceiroPage() {
     };
   };
 
-  // Helper para parsing de data sem perda por fuso horário
-  const parseDataReferencia = (dataStr: string | null | undefined): Date | null => {
-    if (!dataStr) return null;
-    const s = String(dataStr).trim();
-    const isoDateOnly = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (isoDateOnly) {
-      const [_, ano, mes, dia] = isoDateOnly.map(Number);
-      return new Date(ano, mes - 1, dia, 12, 0, 0); // meio-dia local, seguro contra fuso horário
-    }
-    const d = new Date(s);
-    return isNaN(d.getTime()) ? null : d;
-  };
-
-  // Obter data de referência do serviço
-  const getDataReferencia = (s: Servico): Date | null => {
-    // Para serviços pagos, a data financeira primordial de recebimento é pago_em.
-    // Para serviços pendentes ou caso não haja pago_em, usa concluido_em, data_agendada ou created_at.
-    const dataStr = (s.status === "pago" && s.pago_em)
-      ? s.pago_em
-      : (s.pago_em || s.concluido_em || s.data_agendada || (s as any).created_at);
-    return parseDataReferencia(dataStr);
-  };
-
   // Helper unificado para obter o valor de cobrança do serviço
   const getValorServico = (s: Servico) => {
-    if (s.valor !== null && s.valor !== undefined && !isNaN(Number(s.valor)) && Number(s.valor) > 0) {
+    if (
+      s.valor !== null &&
+      s.valor !== undefined &&
+      !isNaN(Number(s.valor)) &&
+      Number(s.valor) > 0
+    ) {
       return Number(s.valor);
     }
-    if (s.valor_total !== null && s.valor_total !== undefined && !isNaN(Number(s.valor_total)) && Number(s.valor_total) > 0) {
+    if (
+      s.valor_total !== null &&
+      s.valor_total !== undefined &&
+      !isNaN(Number(s.valor_total)) &&
+      Number(s.valor_total) > 0
+    ) {
       return Number(s.valor_total);
     }
     const bruto = Number(s.valor_bruto ?? 0);
     const desc = Number(s.desconto ?? 0);
     return Math.max(bruto - desc, 0);
+  };
+
+  // Função para calcular os impostos fiscais de nota: 6% na mão de obra e 4% nos produtos
+  // Exclusivo para serviços executados com pagamento em conta bancária (PIX, Cartão, Boleto, TED), excluindo dinheiro espécie
+  const calcularImpostosServico = (s: Servico) => {
+    const propConta = getProporcaoConta(s);
+    const ehDinheiro = propConta <= 0;
+
+    // Se 100% pago em dinheiro espécie, não incide imposto fiscal de nota
+    if (ehDinheiro) {
+      return {
+        ehDinheiro: true,
+        propConta: 0,
+        valorProdutosVenda: 0,
+        valorMaoObra: 0,
+        impostoProdutos: 0,
+        impostoMaoObra: 0,
+        totalImposto: 0,
+      };
+    }
+
+    const itens = produtosPorServico.get(s.id) || [];
+    let produtosVendaBruto = 0;
+    if (itens.length > 0) {
+      produtosVendaBruto = itens.reduce(
+        (acc, item) => acc + Number(item.quantidade || 1) * Number(item.valor_unitario || 0),
+        0,
+      );
+    } else {
+      const custoAdicionalRepassado = s.incluir_custo_no_total ? Number(s.custo_adicional || 0) : 0;
+      produtosVendaBruto = Math.max(
+        Number(s.valor_bruto ?? 0) - Number(s.valor_mao_obra ?? 0) - custoAdicionalRepassado,
+        0,
+      );
+    }
+
+    let maoObraBruto = Math.max(Number(s.valor_mao_obra ?? 0), 0);
+    const valorCobrado = getValorServico(s);
+
+    if (produtosVendaBruto === 0 && maoObraBruto === 0 && valorCobrado > 0) {
+      maoObraBruto = valorCobrado;
+    }
+
+    // Ajuste proporcional do valor se houver desconto comercial concedido na OS
+    const baseTotal = produtosVendaBruto + maoObraBruto;
+    let fatorDesconto = 1;
+    if (baseTotal > 0 && valorCobrado > 0 && valorCobrado < baseTotal) {
+      fatorDesconto = valorCobrado / baseTotal;
+    }
+
+    const valorProdutosEfetivo = produtosVendaBruto * fatorDesconto * propConta;
+    const valorMaoObraEfetivo = maoObraBruto * fatorDesconto * propConta;
+
+    // Regras tributárias solicitadas:
+    // Produtos (4%) + Mão de Obra de Serviço (6%)
+    const impostoProdutos = valorProdutosEfetivo * 0.04;
+    const impostoMaoObra = valorMaoObraEfetivo * 0.06;
+    const totalImposto = impostoProdutos + impostoMaoObra;
+
+    return {
+      ehDinheiro: false,
+      propConta,
+      valorProdutosVenda: valorProdutosEfetivo,
+      valorMaoObra: valorMaoObraEfetivo,
+      impostoProdutos,
+      impostoMaoObra,
+      totalImposto,
+    };
   };
 
   // Filtragem dos serviços por período, status e busca
@@ -217,9 +380,10 @@ function FinanceiroPage() {
       // 1. Filtro de Texto
       const termo = busca.trim().toLowerCase();
       if (termo) {
-        const matchesTermo = `${s.numero_pedido ?? ""} ${s.clientes?.nome ?? ""} ${s.clientes?.telefone ?? ""} ${s.clientes?.cidade ?? ""} ${s.tipo ?? ""} ${s.status ?? ""} ${s.relatorio ?? ""} ${s.produtos_usados ?? ""}`
-          .toLowerCase()
-          .includes(termo);
+        const matchesTermo =
+          `${s.numero_pedido ?? ""} ${s.clientes?.nome ?? ""} ${s.clientes?.telefone ?? ""} ${s.clientes?.cidade ?? ""} ${s.tipo ?? ""} ${s.status ?? ""} ${s.relatorio ?? ""} ${s.produtos_usados ?? ""}`
+            .toLowerCase()
+            .includes(termo);
         if (!matchesTermo) return false;
       }
 
@@ -253,10 +417,28 @@ function FinanceiroPage() {
       if (filtroPeriodo === "semana") {
         const diaSemanaHoje = agora.getDay();
         const distSegunda = diaSemanaHoje === 0 ? -6 : 1 - diaSemanaHoje;
-        const inicioSemana = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate() + distSegunda, 0, 0, 0, 0);
-        const fimSemana = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate() + distSegunda + 6, 23, 59, 59, 999);
+        const inicioSemana = new Date(
+          agora.getFullYear(),
+          agora.getMonth(),
+          agora.getDate() + distSegunda,
+          0,
+          0,
+          0,
+          0,
+        );
+        const fimSemana = new Date(
+          agora.getFullYear(),
+          agora.getMonth(),
+          agora.getDate() + distSegunda + 6,
+          23,
+          59,
+          59,
+          999,
+        );
 
-        return dataRef.getTime() >= inicioSemana.getTime() && dataRef.getTime() <= fimSemana.getTime();
+        return (
+          dataRef.getTime() >= inicioSemana.getTime() && dataRef.getTime() <= fimSemana.getTime()
+        );
       }
 
       if (filtroPeriodo === "mes") {
@@ -265,8 +447,7 @@ function FinanceiroPage() {
           return dataRef.getFullYear() === ano && dataRef.getMonth() + 1 === mes;
         }
         return (
-          dataRef.getFullYear() === agora.getFullYear() &&
-          dataRef.getMonth() === agora.getMonth()
+          dataRef.getFullYear() === agora.getFullYear() && dataRef.getMonth() === agora.getMonth()
         );
       }
 
@@ -276,7 +457,15 @@ function FinanceiroPage() {
 
       return true;
     });
-  }, [servicos, busca, filtroStatus, filtroPeriodo, dataEspecifica, mesSelecionado, anoSelecionado]);
+  }, [
+    servicos,
+    busca,
+    filtroStatus,
+    filtroPeriodo,
+    dataEspecifica,
+    mesSelecionado,
+    anoSelecionado,
+  ]);
 
   // Contadores para o menu de filtros
   const contadores = useMemo(() => {
@@ -288,8 +477,24 @@ function FinanceiroPage() {
 
     const diaSemanaHoje = agora.getDay();
     const distSegunda = diaSemanaHoje === 0 ? -6 : 1 - diaSemanaHoje;
-    const inicioSemana = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate() + distSegunda, 0, 0, 0, 0);
-    const fimSemana = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate() + distSegunda + 6, 23, 59, 59, 999);
+    const inicioSemana = new Date(
+      agora.getFullYear(),
+      agora.getMonth(),
+      agora.getDate() + distSegunda,
+      0,
+      0,
+      0,
+      0,
+    );
+    const fimSemana = new Date(
+      agora.getFullYear(),
+      agora.getMonth(),
+      agora.getDate() + distSegunda + 6,
+      23,
+      59,
+      59,
+      999,
+    );
 
     let statusPagos = 0;
     let statusPendentes = 0;
@@ -304,13 +509,20 @@ function FinanceiroPage() {
       const dataRef = getDataReferencia(s);
       if (!dataRef) continue;
 
-      if (dataRef.getFullYear() === agora.getFullYear() && dataRef.getMonth() === agora.getMonth() && dataRef.getDate() === agora.getDate()) {
+      if (
+        dataRef.getFullYear() === agora.getFullYear() &&
+        dataRef.getMonth() === agora.getMonth() &&
+        dataRef.getDate() === agora.getDate()
+      ) {
         hoje++;
       }
       if (dataRef.getTime() >= inicioSemana.getTime() && dataRef.getTime() <= fimSemana.getTime()) {
         semana++;
       }
-      if (dataRef.getFullYear() === agora.getFullYear() && dataRef.getMonth() === agora.getMonth()) {
+      if (
+        dataRef.getFullYear() === agora.getFullYear() &&
+        dataRef.getMonth() === agora.getMonth()
+      ) {
         mes++;
       }
       if (dataRef.getFullYear() === anoSelecionado) {
@@ -332,7 +544,10 @@ function FinanceiroPage() {
 
   const salvar = useMutation({
     mutationFn: async ({ id, patch }: { id: string; patch: Record<string, unknown> }) => {
-      const { error } = await supabase.from("servicos").update(patch as never).eq("id", id);
+      const { error } = await supabase
+        .from("servicos")
+        .update(patch as never)
+        .eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -364,16 +579,10 @@ function FinanceiroPage() {
   const servicosPendentesFiltrados = servicosFiltrados.filter((s) => s.status !== "pago");
 
   // 1. A receber (serviços pendentes no filtro atual)
-  const valorAReceber = servicosPendentesFiltrados.reduce(
-    (a, s) => a + getValorServico(s),
-    0
-  );
+  const valorAReceber = servicosPendentesFiltrados.reduce((a, s) => a + getValorServico(s), 0);
 
   // 2. Recebido / Faturamento realizado (serviços pagos no filtro atual)
-  const recebido = servicosPagosFiltrados.reduce(
-    (a, s) => a + getValorServico(s),
-    0
-  );
+  const recebido = servicosPagosFiltrados.reduce((a, s) => a + getValorServico(s), 0);
 
   // Faturamento total do filtro (recebido + a receber)
   const faturamentoTotalFiltrado = recebido + valorAReceber;
@@ -405,22 +614,22 @@ function FinanceiroPage() {
     filtroStatus === "pago"
       ? custoTotalPagos
       : filtroStatus === "pendente"
-      ? custoTotalPendentes
-      : custoTotalPagos;
+        ? custoTotalPendentes
+        : custoTotalPagos;
 
   const custoPecasExibido =
     filtroStatus === "pago"
       ? custoPecasPagos
       : filtroStatus === "pendente"
-      ? custoPecasPendentes
-      : custoPecasPagos;
+        ? custoPecasPendentes
+        : custoPecasPagos;
 
   const custoAdicionalExibido =
     filtroStatus === "pago"
       ? custoAdicionalPagos
       : filtroStatus === "pendente"
-      ? custoAdicionalPendentes
-      : custoAdicionalPagos;
+        ? custoAdicionalPendentes
+        : custoAdicionalPagos;
 
   // 4. Lucro Real / Projetado
   // Lucro líquido real dos serviços pagos no filtro
@@ -430,26 +639,96 @@ function FinanceiroPage() {
   // Lucro total projetado considerando todas as OSs filtradas
   const lucroTotalProjetado = Math.max(faturamentoTotalFiltrado - custoTotalGeral, 0);
 
-  const lucroExibido =
-    filtroStatus === "pendente" ? lucroProjetadoPendentes : lucroRealPagos;
+  const lucroExibido = filtroStatus === "pendente" ? lucroProjetadoPendentes : lucroRealPagos;
 
   // 5. Dízimo (10%):
-  const dizimoReal = lucroRealPagos * 0.10;
-  const dizimoProjetado = lucroProjetadoPendentes * 0.10;
-  const dizimoTotal = lucroTotalProjetado * 0.10;
-  const dizimoExibido =
-    filtroStatus === "pendente" ? dizimoProjetado : dizimoReal;
+  const dizimoReal = lucroRealPagos * 0.1;
+  const dizimoProjetado = lucroProjetadoPendentes * 0.1;
+  const dizimoTotal = lucroTotalProjetado * 0.1;
+  const dizimoExibido = filtroStatus === "pendente" ? dizimoProjetado : dizimoReal;
+
+  // 6. Total de Imposto a Pagar (Mão de Obra 6%, Produtos 4%)
+  // Regra estrita: apenas serviços executados com pagamento recebido/previsto em conta bancária (PIX, Cartão, Boleto, TED), excluindo dinheiro em espécie
+  const impostosServicosPagos = servicosPagosFiltrados.map((s) => ({
+    s,
+    ...calcularImpostosServico(s),
+  }));
+
+  const impostoMaoObraPagos = impostosServicosPagos.reduce((a, c) => a + c.impostoMaoObra, 0);
+  const impostoProdutosPagos = impostosServicosPagos.reduce((a, c) => a + c.impostoProdutos, 0);
+  const totalImpostoPagos = impostoMaoObraPagos + impostoProdutosPagos;
+  const qtdServicosPagosConta = impostosServicosPagos.filter(
+    (c) => !c.ehDinheiro && c.totalImposto > 0,
+  ).length;
+  const qtdServicosPagosDinheiro = impostosServicosPagos.filter((c) => c.ehDinheiro).length;
+
+  const impostosServicosPendentes = servicosPendentesFiltrados.map((s) => ({
+    s,
+    ...calcularImpostosServico(s),
+  }));
+
+  const impostoMaoObraPendentes = impostosServicosPendentes.reduce(
+    (a, c) => a + c.impostoMaoObra,
+    0,
+  );
+  const impostoProdutosPendentes = impostosServicosPendentes.reduce(
+    (a, c) => a + c.impostoProdutos,
+    0,
+  );
+  const totalImpostoPendentes = impostoMaoObraPendentes + impostoProdutosPendentes;
+  const qtdServicosPendentesConta = impostosServicosPendentes.filter(
+    (c) => !c.ehDinheiro && c.totalImposto > 0,
+  ).length;
+
+  const totalImpostoGeral = totalImpostoPagos + totalImpostoPendentes;
+
+  const totalImpostoExibido =
+    filtroStatus === "pago"
+      ? totalImpostoPagos
+      : filtroStatus === "pendente"
+        ? totalImpostoPendentes
+        : totalImpostoPagos;
+
+  const impostoMaoObraExibido =
+    filtroStatus === "pago"
+      ? impostoMaoObraPagos
+      : filtroStatus === "pendente"
+        ? impostoMaoObraPendentes
+        : impostoMaoObraPagos;
+
+  const impostoProdutosExibido =
+    filtroStatus === "pago"
+      ? impostoProdutosPagos
+      : filtroStatus === "pendente"
+        ? impostoProdutosPendentes
+        : impostoProdutosPagos;
 
   const numAlvoCustoAdicional = Math.max(Number(alvoCustoAdicional || 0), 0);
   const brutoBaseAlvo = alvo
-    ? Number(alvo.valor_bruto ?? 0) - (alvo.incluir_custo_no_total ? Number(alvo.custo_adicional ?? 0) : 0)
+    ? Number(alvo.valor_bruto ?? 0) -
+      (alvo.incluir_custo_no_total ? Number(alvo.custo_adicional ?? 0) : 0)
     : 0;
   const novoBrutoAlvo = brutoBaseAlvo + (alvoIncluirNoTotal ? numAlvoCustoAdicional : 0);
   const totalComDesconto = Math.max(novoBrutoAlvo - Number(desconto || 0), 0);
   const custoPecasAlvo = alvo ? calcularCustoServico(alvo).custoPecas : 0;
   const custoTotalAlvo = custoPecasAlvo + numAlvoCustoAdicional;
   const lucroAlvo = Math.max(totalComDesconto - custoTotalAlvo, 0);
-  const dizimoAlvo = lucroAlvo * 0.10;
+  const dizimoAlvo = lucroAlvo * 0.1;
+
+  // Cálculos fiscais para o alvo (dialog de edição)
+  const propContaAlvo = ehFormaDinheiro(alvoFormaPagamento) ? 0 : 1;
+  const produtosBaseAlvo = Math.max(
+    novoBrutoAlvo -
+      Number(alvo?.valor_mao_obra ?? 0) -
+      (alvoIncluirNoTotal ? numAlvoCustoAdicional : 0),
+    0,
+  );
+  const baseTotalAlvo = produtosBaseAlvo + Number(alvo?.valor_mao_obra ?? 0);
+  const fatorAlvo =
+    baseTotalAlvo > 0 && totalComDesconto < baseTotalAlvo ? totalComDesconto / baseTotalAlvo : 1;
+  const impostoMaoObraAlvo = Number(alvo?.valor_mao_obra ?? 0) * fatorAlvo * 0.06 * propContaAlvo;
+  const impostoProdutosAlvo = produtosBaseAlvo * fatorAlvo * 0.04 * propContaAlvo;
+  const totalImpostoAlvo = impostoMaoObraAlvo + impostoProdutosAlvo;
 
   const descricaoFiltroPeriodo = useMemo(() => {
     if (filtroPeriodo === "todos") return "Todo o período";
@@ -458,7 +737,20 @@ function FinanceiroPage() {
     if (filtroPeriodo === "semana") return "Esta semana";
     if (filtroPeriodo === "mes") {
       const [ano, mes] = mesSelecionado.split("-");
-      const meses = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+      const meses = [
+        "Jan",
+        "Fev",
+        "Mar",
+        "Abr",
+        "Mai",
+        "Jun",
+        "Jul",
+        "Ago",
+        "Set",
+        "Out",
+        "Nov",
+        "Dez",
+      ];
       return `${meses[Number(mes) - 1]}/${ano}`;
     }
     if (filtroPeriodo === "ano") return `Ano ${anoSelecionado}`;
@@ -471,7 +763,8 @@ function FinanceiroPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Financeiro</h1>
           <p className="text-sm text-muted-foreground">
-            Serviços executados, custos de peças no valor de compra, despesas adicionais, lucro real e dízimo (10%).
+            Serviços executados, custos de peças no valor de compra, despesas adicionais, lucro real
+            e dízimo (10%).
           </p>
         </div>
       </div>
@@ -561,8 +854,7 @@ function FinanceiroPage() {
               className="h-7 px-2.5 text-xs gap-1"
               onClick={() => setFiltroStatus("pendente")}
             >
-              <Clock className="h-3 w-3 text-amber-500" />
-              A Receber ({contadores.statusPendentes})
+              <Clock className="h-3 w-3 text-amber-500" />A Receber ({contadores.statusPendentes})
             </Button>
           </div>
 
@@ -646,8 +938,8 @@ function FinanceiroPage() {
               {filtroStatus === "todos"
                 ? "Todos os status"
                 : filtroStatus === "pago"
-                ? "Somente Pagos"
-                : "A Receber / Pendentes"}
+                  ? "Somente Pagos"
+                  : "A Receber / Pendentes"}
             </strong>{" "}
             ({servicosFiltrados.length} {servicosFiltrados.length === 1 ? "serviço" : "serviços"})
           </span>
@@ -666,7 +958,7 @@ function FinanceiroPage() {
           )}
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           <div className="surface-card p-4">
             <div className="flex items-center justify-between">
               <p className="text-xs font-medium text-muted-foreground">A receber</p>
@@ -676,7 +968,9 @@ function FinanceiroPage() {
               {formatMoney(valorAReceber)}
             </p>
             <p className="text-[11px] text-muted-foreground mt-0.5">
-              {servicosPendentesFiltrados.length} {servicosPendentesFiltrados.length === 1 ? "serviço pendente" : "serviços pendentes"} no filtro
+              {servicosPendentesFiltrados.length}{" "}
+              {servicosPendentesFiltrados.length === 1 ? "serviço pendente" : "serviços pendentes"}{" "}
+              no filtro
             </p>
           </div>
 
@@ -692,8 +986,8 @@ function FinanceiroPage() {
               {filtroStatus === "pendente"
                 ? `Previsto a faturar: ${formatMoney(valorAReceber)}`
                 : filtroStatus === "todos"
-                ? `Total pago (${servicosPagosFiltrados.length} OSs)${valorAReceber > 0 ? ` · Total c/ pendentes: ${formatMoney(faturamentoTotalFiltrado)}` : ""}`
-                : `${servicosPagosFiltrados.length} serviço(s) pago(s)`}
+                  ? `Total pago (${servicosPagosFiltrados.length} OSs)${valorAReceber > 0 ? ` · Total c/ pendentes: ${formatMoney(faturamentoTotalFiltrado)}` : ""}`
+                  : `${servicosPagosFiltrados.length} serviço(s) pago(s)`}
             </p>
           </div>
 
@@ -706,8 +1000,11 @@ function FinanceiroPage() {
               {formatMoney(custoTotalExibido)}
             </p>
             <p className="text-[11px] text-muted-foreground mt-0.5">
-              Peças: {formatMoney(custoPecasExibido)} · Despesas: {formatMoney(custoAdicionalExibido)}
-              {filtroStatus === "todos" && custoTotalPendentes > 0 && ` (c/ pendentes: ${formatMoney(custoTotalGeral)})`}
+              Peças: {formatMoney(custoPecasExibido)} · Despesas:{" "}
+              {formatMoney(custoAdicionalExibido)}
+              {filtroStatus === "todos" &&
+                custoTotalPendentes > 0 &&
+                ` (c/ pendentes: ${formatMoney(custoTotalGeral)})`}
             </p>
           </div>
 
@@ -725,8 +1022,8 @@ function FinanceiroPage() {
               {filtroStatus === "pago"
                 ? `Recebido − Custos (${formatMoney(custoTotalPagos)})`
                 : filtroStatus === "pendente"
-                ? `Previsto − Custos (${formatMoney(custoTotalPendentes)})`
-                : `Realizado: ${formatMoney(lucroRealPagos)}${servicosPendentesFiltrados.length > 0 ? ` · Previsto total: ${formatMoney(lucroTotalProjetado)}` : ""}`}
+                  ? `Previsto − Custos (${formatMoney(custoTotalPendentes)})`
+                  : `Realizado: ${formatMoney(lucroRealPagos)}${servicosPendentesFiltrados.length > 0 ? ` · Previsto total: ${formatMoney(lucroTotalProjetado)}` : ""}`}
             </p>
           </div>
 
@@ -744,9 +1041,34 @@ function FinanceiroPage() {
               {filtroStatus === "pago"
                 ? "10% sobre o lucro líquido dos recebidos"
                 : filtroStatus === "pendente"
-                ? "10% sobre o lucro líquido projetado"
-                : `Recebidos: ${formatMoney(dizimoReal)}${servicosPendentesFiltrados.length > 0 ? ` · Previsto: ${formatMoney(dizimoTotal)}` : ""}`}
+                  ? "10% sobre o lucro líquido projetado"
+                  : `Recebidos: ${formatMoney(dizimoReal)}${servicosPendentesFiltrados.length > 0 ? ` · Previsto: ${formatMoney(dizimoTotal)}` : ""}`}
             </p>
+          </div>
+
+          <div className="surface-card p-4 bg-purple-500/5 border-l-4 border-purple-500">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-medium text-purple-700 dark:text-purple-300 font-semibold">
+                {filtroStatus === "pendente" ? "Imposto Projetado" : "Total de Imposto"}
+              </p>
+              <Receipt className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+            </div>
+            <p className="mt-2 text-xl font-bold tracking-tight text-purple-600 dark:text-purple-400">
+              {formatMoney(totalImpostoExibido)}
+            </p>
+            <div className="text-[11px] text-muted-foreground mt-0.5 space-y-0.5">
+              <p>
+                M.O. (6%): {formatMoney(impostoMaoObraExibido)} · Peças (4%):{" "}
+                {formatMoney(impostoProdutosExibido)}
+              </p>
+              <p className="text-[10px] text-muted-foreground/80">
+                {filtroStatus === "pago"
+                  ? `${qtdServicosPagosConta} OS(s) em conta · ${qtdServicosPagosDinheiro} em espécie isento(s)`
+                  : filtroStatus === "pendente"
+                    ? `${qtdServicosPendentesConta} OS(s) previstas em conta`
+                    : `${qtdServicosPagosConta} recebido(s) em conta${totalImpostoPendentes > 0 ? ` · Previsto: ${formatMoney(totalImpostoGeral)}` : ""}`}
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -761,9 +1083,12 @@ function FinanceiroPage() {
         <div className="grid gap-4 lg:grid-cols-2">
           {servicosFiltrados.map((s) => {
             const custosItem = calcularCustoServico(s);
-            const valorCobrado = Number(s.valor ?? (Number(s.valor_bruto ?? 0) - Number(s.desconto ?? 0)));
+            const impostosItem = calcularImpostosServico(s);
+            const valorCobrado = Number(
+              s.valor ?? Number(s.valor_bruto ?? 0) - Number(s.desconto ?? 0),
+            );
             const lucroItem = Math.max(valorCobrado - custosItem.custoTotal, 0);
-            const dizimoItem = lucroItem * 0.10;
+            const dizimoItem = lucroItem * 0.1;
 
             return (
               <div key={s.id} className="surface-card space-y-3 p-5">
@@ -779,9 +1104,24 @@ function FinanceiroPage() {
                       {s.clientes?.telefone ?? "sem telefone"} · {tipoLabels[s.tipo]}
                     </p>
                   </div>
-                  <span className={`rounded-full px-3 py-1 text-xs font-medium ${statusBadgeClass[s.status]}`}>
-                    {statusLabels[s.status]}
-                  </span>
+                  <div className="flex flex-wrap items-center gap-1.5 justify-end">
+                    <span
+                      className={`rounded-full px-3 py-1 text-xs font-medium ${statusBadgeClass[s.status]}`}
+                    >
+                      {statusLabels[s.status]}
+                    </span>
+                    {ehFormaDinheiro(s.forma_pagamento) ? (
+                      <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20">
+                        <Banknote className="h-3 w-3" />
+                        Dinheiro (Isento NF)
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-medium bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/20">
+                        <Receipt className="h-3 w-3" />
+                        {formatarFormaPagamento(s.forma_pagamento)}
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="space-y-1 text-sm">
@@ -802,7 +1142,10 @@ function FinanceiroPage() {
                       <span className="text-muted-foreground">Custo adicional (despesas): </span>
                       <span className="font-medium">{formatMoney(s.custo_adicional)}</span>
                       {s.descricao_custo_adicional ? (
-                        <span className="text-muted-foreground text-xs"> ({s.descricao_custo_adicional})</span>
+                        <span className="text-muted-foreground text-xs">
+                          {" "}
+                          ({s.descricao_custo_adicional})
+                        </span>
                       ) : null}
                       {s.incluir_custo_no_total ? (
                         <span className="text-[11px] text-blue-600 dark:text-blue-400 ml-1.5 font-normal">
@@ -830,28 +1173,65 @@ function FinanceiroPage() {
                     {formatMoney(s.valor)}
                   </p>
 
-                  {/* Detalhamento de Custos Reais, Lucro e Dízimo */}
-                  <div className="mt-2 border-t pt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] font-medium bg-muted/40 p-2.5 rounded-md">
+                  {/* Detalhamento de Custos Reais, Lucro, Dízimo e Impostos NF */}
+                  <div className="mt-2 border-t pt-2 grid grid-cols-2 sm:grid-cols-5 gap-2 text-[11px] font-medium bg-muted/40 p-2.5 rounded-md">
                     <div>
                       <span className="block text-muted-foreground">Peças (custo):</span>
-                      <span className="text-rose-600 dark:text-rose-400 font-semibold">{formatMoney(custosItem.custoPecas)}</span>
+                      <span className="text-rose-600 dark:text-rose-400 font-semibold">
+                        {formatMoney(custosItem.custoPecas)}
+                      </span>
                     </div>
                     <div>
                       <span className="block text-muted-foreground">Custo adicional:</span>
-                      <span className="text-amber-600 dark:text-amber-400 font-semibold">{formatMoney(custosItem.custoAdicional)}</span>
+                      <span className="text-amber-600 dark:text-amber-400 font-semibold">
+                        {formatMoney(custosItem.custoAdicional)}
+                      </span>
                     </div>
                     <div>
-                      <span className="block text-muted-foreground">Lucro {s.status === "pago" ? "real" : "projetado"}:</span>
-                      <span className="text-blue-600 dark:text-blue-400 font-semibold">{formatMoney(lucroItem)}</span>
+                      <span className="block text-muted-foreground">
+                        Lucro {s.status === "pago" ? "real" : "projetado"}:
+                      </span>
+                      <span className="text-blue-600 dark:text-blue-400 font-semibold">
+                        {formatMoney(lucroItem)}
+                      </span>
                     </div>
                     <div>
-                      <span className="block text-emerald-700 dark:text-emerald-300">Dízimo (10%):</span>
-                      <span className="text-emerald-600 dark:text-emerald-400 font-semibold">{formatMoney(dizimoItem)}</span>
+                      <span className="block text-emerald-700 dark:text-emerald-300">
+                        Dízimo (10%):
+                      </span>
+                      <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
+                        {formatMoney(dizimoItem)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="block text-purple-700 dark:text-purple-300">
+                        Imposto NF (6%/4%):
+                      </span>
+                      {impostosItem.ehDinheiro ? (
+                        <span className="text-muted-foreground font-semibold">
+                          Isento (espécie)
+                        </span>
+                      ) : (
+                        <div>
+                          <span className="text-purple-600 dark:text-purple-400 font-semibold">
+                            {formatMoney(impostosItem.totalImposto)}
+                          </span>
+                          <span className="block text-[10px] text-muted-foreground">
+                            M.O: {formatMoney(impostosItem.impostoMaoObra)} · Peças:{" "}
+                            {formatMoney(impostosItem.impostoProdutos)}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </div>
 
                   {s.pago_em && (
-                    <p className="text-muted-foreground text-xs pt-1">Pago em {formatDateTime(s.pago_em)}</p>
+                    <p className="text-muted-foreground text-xs pt-1">
+                      Pago em {formatDateTime(s.pago_em)}{" "}
+                      {s.forma_pagamento
+                        ? `· Forma: ${formatarFormaPagamento(s.forma_pagamento)}`
+                        : ""}
+                    </p>
                   )}
                 </div>
 
@@ -862,9 +1242,14 @@ function FinanceiroPage() {
                     onClick={() => {
                       setAlvo(s);
                       setDesconto(String(Number(s.desconto ?? 0)));
-                      setAlvoCustoAdicional(s.custo_adicional != null && Number(s.custo_adicional) > 0 ? String(s.custo_adicional) : "");
+                      setAlvoCustoAdicional(
+                        s.custo_adicional != null && Number(s.custo_adicional) > 0
+                          ? String(s.custo_adicional)
+                          : "",
+                      );
                       setAlvoDescricaoCusto(s.descricao_custo_adicional ?? "");
                       setAlvoIncluirNoTotal(Boolean(s.incluir_custo_no_total));
+                      setAlvoFormaPagamento(s.forma_pagamento || "pix");
                     }}
                   >
                     Editar valor / custos
@@ -872,12 +1257,10 @@ function FinanceiroPage() {
                   {s.status !== "pago" && (
                     <Button
                       size="sm"
-                      onClick={() =>
-                        salvar.mutate({
-                          id: s.id,
-                          patch: { status: "pago", pago_em: new Date().toISOString() },
-                        })
-                      }
+                      onClick={() => {
+                        setServicoParaQuitar(s);
+                        setFormaQuitar(s.forma_pagamento || "pix");
+                      }}
                     >
                       Marcar como pago
                     </Button>
@@ -916,7 +1299,9 @@ function FinanceiroPage() {
       <Dialog open={!!alvo} onOpenChange={(o) => !o && setAlvo(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Valores e custos da OS #{alvo?.numero_pedido ?? alvo?.id.replace("s-", "")}</DialogTitle>
+            <DialogTitle>
+              Valores e custos da OS #{alvo?.numero_pedido ?? alvo?.id.replace("s-", "")}
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-3.5 text-sm">
             <div className="flex justify-between">
@@ -928,9 +1313,9 @@ function FinanceiroPage() {
                         Number(alvo.valor_bruto ?? 0) -
                           Number(alvo.valor_mao_obra ?? 0) -
                           (alvo.incluir_custo_no_total ? Number(alvo.custo_adicional ?? 0) : 0),
-                        0
+                        0,
                       )
-                    : 0
+                    : 0,
                 )}
               </span>
             </div>
@@ -1000,6 +1385,27 @@ function FinanceiroPage() {
               />
             </div>
 
+            <div className="space-y-1">
+              <Label>Forma de pagamento (para apuração de imposto)</Label>
+              <Select value={alvoFormaPagamento} onValueChange={setAlvoFormaPagamento}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {FORMAS_PAGAMENTO_OPCOES.map((f) => (
+                    <SelectItem key={f.id} value={f.id}>
+                      {f.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground">
+                {ehFormaDinheiro(alvoFormaPagamento)
+                  ? "Recebimento em dinheiro espécie: isento de nota e cálculo de imposto."
+                  : "Recebimento em conta: incide 6% sobre mão de obra e 4% sobre produtos."}
+              </p>
+            </div>
+
             <div className="flex justify-between border-t pt-2 text-base font-semibold">
               <span>Valor final a cobrar</span>
               <span className="text-primary">{formatMoney(totalComDesconto)}</span>
@@ -1008,25 +1414,41 @@ function FinanceiroPage() {
             <div className="bg-muted/40 p-3 rounded-lg space-y-1.5 text-xs">
               <div className="flex justify-between text-muted-foreground">
                 <span>Custo real dos produtos (compra):</span>
-                <span className="text-rose-600 dark:text-rose-400 font-semibold">{formatMoney(custoPecasAlvo)}</span>
+                <span className="text-rose-600 dark:text-rose-400 font-semibold">
+                  {formatMoney(custoPecasAlvo)}
+                </span>
               </div>
               {numAlvoCustoAdicional > 0 && (
                 <div className="flex justify-between text-muted-foreground">
                   <span>Custo adicional (despesas):</span>
-                  <span className="text-amber-600 dark:text-amber-400 font-semibold">{formatMoney(numAlvoCustoAdicional)}</span>
+                  <span className="text-amber-600 dark:text-amber-400 font-semibold">
+                    {formatMoney(numAlvoCustoAdicional)}
+                  </span>
                 </div>
               )}
               <div className="flex justify-between text-muted-foreground">
                 <span>Custo total (peças + despesas):</span>
-                <span className="text-rose-700 dark:text-rose-300 font-semibold">{formatMoney(custoTotalAlvo)}</span>
+                <span className="text-rose-700 dark:text-rose-300 font-semibold">
+                  {formatMoney(custoTotalAlvo)}
+                </span>
               </div>
               <div className="flex justify-between text-muted-foreground border-t pt-1 font-medium">
                 <span>Lucro líquido real estimado:</span>
-                <span className="text-blue-600 dark:text-blue-400 font-semibold">{formatMoney(lucroAlvo)}</span>
+                <span className="text-blue-600 dark:text-blue-400 font-semibold">
+                  {formatMoney(lucroAlvo)}
+                </span>
               </div>
               <div className="flex justify-between font-semibold text-emerald-700 dark:text-emerald-400">
                 <span>Dízimo estimado (10% sobre o lucro):</span>
                 <span>{formatMoney(dizimoAlvo)}</span>
+              </div>
+              <div className="flex justify-between font-semibold text-purple-700 dark:text-purple-400 border-t pt-1">
+                <span>
+                  Imposto NF estimado (
+                  {ehFormaDinheiro(alvoFormaPagamento) ? "Isento em espécie" : "6% M.O. + 4% Prod."}
+                  ):
+                </span>
+                <span>{formatMoney(totalImpostoAlvo)}</span>
               </div>
             </div>
           </div>
@@ -1046,6 +1468,7 @@ function FinanceiroPage() {
                     custo_adicional: numCusto,
                     descricao_custo_adicional: alvoDescricaoCusto.trim() || null,
                     incluir_custo_no_total: alvoIncluirNoTotal,
+                    forma_pagamento: alvoFormaPagamento,
                     valor_bruto: Number(novoBrutoAlvo.toFixed(2)),
                     valor: Number(Math.max(novoBrutoAlvo - d, 0).toFixed(2)),
                   },
@@ -1054,6 +1477,75 @@ function FinanceiroPage() {
               disabled={salvar.isPending}
             >
               Salvar alterações
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal para confirmação de pagamento com seleção de forma */}
+      <Dialog open={!!servicoParaQuitar} onOpenChange={(o) => !o && setServicoParaQuitar(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              Confirmar Recebimento da OS #
+              {servicoParaQuitar?.numero_pedido ?? servicoParaQuitar?.id.replace("s-", "")}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2 text-sm">
+            <div className="p-3 bg-muted/40 rounded-lg space-y-1">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Cliente:</span>
+                <span className="font-semibold">{servicoParaQuitar?.clientes?.nome}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Valor a receber:</span>
+                <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                  {formatMoney(servicoParaQuitar ? getValorServico(servicoParaQuitar) : 0)}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Forma de Pagamento</Label>
+              <Select value={formaQuitar} onValueChange={setFormaQuitar}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {FORMAS_PAGAMENTO_OPCOES.map((f) => (
+                    <SelectItem key={f.id} value={f.id}>
+                      {f.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground">
+                {ehFormaDinheiro(formaQuitar)
+                  ? "Pagamento em dinheiro espécie: não incide imposto fiscal de nota."
+                  : "Pagamento em conta (PIX/Cartão/TED/Boleto): incide imposto fiscal de 6% sobre mão de obra e 4% sobre produtos."}
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setServicoParaQuitar(null)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => {
+                if (!servicoParaQuitar) return;
+                salvar.mutate({
+                  id: servicoParaQuitar.id,
+                  patch: {
+                    status: "pago",
+                    pago_em: new Date().toISOString(),
+                    forma_pagamento: formaQuitar,
+                  },
+                });
+                setServicoParaQuitar(null);
+              }}
+              disabled={salvar.isPending}
+            >
+              Confirmar Pagamento
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -54,6 +54,7 @@ import {
 } from "@/lib/types";
 
 export const Route = createFileRoute("/_authenticated/servicos")({
+  ssr: false,
   head: () => ({
     meta: [
       {

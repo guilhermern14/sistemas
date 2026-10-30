@@ -23,6 +23,7 @@ import { enderecoCompleto, mapsUrl, type Servico, type ServicoProduto } from "@/
 
 
 export const Route = createFileRoute("/_authenticated/prontos")({
+  ssr: false,
   head: () => ({
     meta: [
       { title: "Serviços prontos — Nascimento Sistemas de Segurança" },

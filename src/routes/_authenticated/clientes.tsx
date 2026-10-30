@@ -21,6 +21,7 @@ import { ConfirmDeleteDialog } from "@/components/ConfirmDeleteDialog";
 import type { Cliente } from "@/lib/types";
 
 export const Route = createFileRoute("/_authenticated/clientes")({
+  ssr: false,
   head: () => ({
     meta: [
       { title: "Clientes — Nascimento Sistemas de Segurança" },

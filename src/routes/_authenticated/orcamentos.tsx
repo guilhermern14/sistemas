@@ -24,6 +24,7 @@ import {
   User,
   ArrowRight,
   Pencil,
+  Receipt,
 } from "lucide-react";
 import { NovoOrcamentoDialog } from "@/components/NovoOrcamentoDialog";
 import { AprovarOrcamentoDialog } from "@/components/AprovarOrcamentoDialog";
@@ -34,6 +35,7 @@ import { useAuth } from "@/hooks/useAuth";
 import type { Orcamento, OrcamentoItem } from "@/lib/types";
 
 export const Route = createFileRoute("/_authenticated/orcamentos")({
+  ssr: false,
   head: () => ({
     meta: [
       {
@@ -626,37 +628,88 @@ function OrcamentosPage() {
                 </table>
               </div>
 
-              {/* Totais */}
-              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-1 text-slate-600">
-                <div className="flex justify-between">
-                  <span>Mão de Obra:</span>
-                  <span className="font-medium text-slate-800">
-                    {formatMoney(orcamentoParaVer.valor_mao_obra)}
-                  </span>
-                </div>
-                {Number(orcamentoParaVer.custo_adicional || 0) > 0 && (
-                  <div className="flex justify-between">
-                    <span>
-                      {orcamentoParaVer.descricao_custo_adicional || "Despesas adicionais"}:
-                    </span>
-                    <span className="font-medium text-slate-800">
-                      {formatMoney(orcamentoParaVer.custo_adicional)}
-                    </span>
+              {/* Totais & Impostos das Notas */}
+              {(() => {
+                const totalProdVer = itensDoOrcamentoVer.reduce(
+                  (s, it) => s + (Number(it.quantidade) || 0) * (Number(it.valor_venda) || 0),
+                  0,
+                );
+                const totalCustoVer = itensDoOrcamentoVer.reduce(
+                  (s, it) => s + (Number(it.quantidade) || 0) * (Number(it.valor_custo) || 0),
+                  0,
+                );
+                const impostoProdVer4 = totalProdVer * 0.04;
+                const impostoMaoObraVer6 = (Number(orcamentoParaVer.valor_mao_obra) || 0) * 0.06;
+                const totalImpostosVer = impostoProdVer4 + impostoMaoObraVer6;
+
+                return (
+                  <div className="space-y-3">
+                    <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-1.5 text-xs text-slate-600">
+                      <div className="flex justify-between">
+                        <span>Total de Produtos:</span>
+                        <span className="font-semibold text-slate-800">{formatMoney(totalProdVer)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Mão de Obra:</span>
+                        <span className="font-semibold text-slate-800">
+                          {formatMoney(orcamentoParaVer.valor_mao_obra)}
+                        </span>
+                      </div>
+                      {Number(orcamentoParaVer.custo_adicional || 0) > 0 && (
+                        <div className="flex justify-between">
+                          <span>
+                            {orcamentoParaVer.descricao_custo_adicional || "Despesas adicionais"}:
+                          </span>
+                          <span className="font-semibold text-slate-800">
+                            {formatMoney(orcamentoParaVer.custo_adicional)}
+                          </span>
+                        </div>
+                      )}
+                      {Number(orcamentoParaVer.desconto || 0) > 0 && (
+                        <div className="flex justify-between text-red-600">
+                          <span>Desconto comercial:</span>
+                          <span className="font-semibold">
+                            - {formatMoney(orcamentoParaVer.desconto)}
+                          </span>
+                        </div>
+                      )}
+                      <div className="flex justify-between pt-1.5 border-t border-slate-200 text-sm font-bold text-slate-900">
+                        <span>Valor Total:</span>
+                        <span className="text-blue-700">{formatMoney(orcamentoParaVer.valor_total)}</span>
+                      </div>
+                    </div>
+
+                    {/* Bloco de Gestão Fiscal e Custos */}
+                    <div className="p-3 bg-white rounded-lg border border-amber-200/80 space-y-1.5 text-xs">
+                      <div className="flex items-center justify-between pb-1 border-b border-slate-100 font-bold text-slate-800">
+                        <div className="flex items-center gap-1.5">
+                          <Receipt className="w-3.5 h-3.5 text-amber-600" />
+                          <span>Custos e Impostos das Notas</span>
+                        </div>
+                        <span className="text-[10px] text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 font-semibold">
+                          Controle Fiscal
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-slate-600">
+                        <span>Valor de custo total dos produtos:</span>
+                        <span className="font-bold text-slate-900">{formatMoney(totalCustoVer)}</span>
+                      </div>
+                      <div className="flex justify-between text-amber-900 bg-amber-50/70 p-1.5 rounded border border-amber-100">
+                        <span className="font-medium">Imposto nota dos produtos (4%):</span>
+                        <span className="font-extrabold text-amber-950">{formatMoney(impostoProdVer4)}</span>
+                      </div>
+                      <div className="flex justify-between text-blue-900 bg-blue-50/70 p-1.5 rounded border border-blue-100">
+                        <span className="font-medium">Imposto nota da mão de obra (6%):</span>
+                        <span className="font-extrabold text-blue-950">{formatMoney(impostoMaoObraVer6)}</span>
+                      </div>
+                      <div className="flex justify-between pt-1 border-t border-slate-100 text-[11px] text-slate-500">
+                        <span className="font-medium">Total de impostos a pagar (4% + 6%):</span>
+                        <span className="font-bold text-slate-800">{formatMoney(totalImpostosVer)}</span>
+                      </div>
+                    </div>
                   </div>
-                )}
-                {Number(orcamentoParaVer.desconto || 0) > 0 && (
-                  <div className="flex justify-between text-red-600">
-                    <span>Desconto comercial:</span>
-                    <span className="font-semibold">
-                      - {formatMoney(orcamentoParaVer.desconto)}
-                    </span>
-                  </div>
-                )}
-                <div className="flex justify-between pt-1 border-t border-slate-200 text-sm font-bold text-slate-900">
-                  <span>Valor Total:</span>
-                  <span className="text-blue-700">{formatMoney(orcamentoParaVer.valor_total)}</span>
-                </div>
-              </div>
+                );
+              })()}
 
               {orcamentoParaVer.forma_pagamento && (
                 <div className="text-slate-600">
